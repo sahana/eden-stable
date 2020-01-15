@@ -32,6 +32,7 @@ def role():
     """ Role Manager """
 
     def prep(r):
+        # Theme: Classifications
         if r.representation not in ("html", "aadata", "csv", "json"):
             return False
 

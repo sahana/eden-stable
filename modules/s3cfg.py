@@ -132,6 +132,7 @@ class S3Config(Storage):
     # defaults to ["Helvetica", "Helvetica-Bold"] if not-specified here
     # Requires installation of appropriate font - e.g. using import_font in tasks.cfg
     # Unifont can be downloaded from http://unifoundry.com/pub/unifont-7.0.06/font-builds/unifont-7.0.06.ttf
+    # nEden: Is this a copyright thing? why not helvetica?
     fonts = {"ar": ["unifont", "unifont"],
              #"dv": ["unifont", "unifont"],
              #"dz": ["unifont", "unifont"],
@@ -150,9 +151,10 @@ class S3Config(Storage):
              }
 
     def __init__(self):
-
+        # nEden: Can't figure out where this class loads its data from disk
         super(S3Config, self).__init__()
 
+        # nEden: a dictionary-list class that supports pickle
         self.asset = Storage()
         self.auth = Storage()
         self.auth.email_domains = []
@@ -164,6 +166,7 @@ class S3Config(Storage):
         self.cap = Storage()
         self.cms = Storage()
         self.cr = Storage()
+        # nEden: this must be replaced sometime? Because we're getting values from it. Probably easiest to find in debug
         self.database = Storage()
         self.dc = Storage()
         self.deploy = Storage()
@@ -216,9 +219,11 @@ class S3Config(Storage):
         self._db_params = None
 
         self._debug = None
+        # nEden: set?
         self._lazy_unwrapped = []
 
         # Provide a minimal list of core modules
+        # nEden: implicit tautology
         self.modules = {"default": Storage(name_nice = "Home",
                                            ),      # Default
                         "admin": Storage(name_nice = "Administration",
@@ -1252,6 +1257,7 @@ class S3Config(Storage):
         """
         currencies = self.__lazy("fin", "currencies", {})
         if currencies == {}:
+            # nEden: catgegories - currencies supported
             currencies = {
                 "EUR": "Euros",
                 "GBP": "Great British Pounds",

@@ -33,6 +33,7 @@ appname = request.application
 
 if update_check_needed:
     # @ToDo: Load deployment_settings so that we can configure the update_check
+    # nEden: This file no longer seems to exist...
     # - need to rework so that 000_config.py is parsed 1st
     import s3cfg
     settings = s3cfg.S3Config()
