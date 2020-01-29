@@ -1964,23 +1964,24 @@ class IS_PHONE_NUMBER(Validator):
                      is converted into E.123 international notation.
         """
         # All non-strings are errors
+        error_message = self.error_message
         if not isinstance(value, basestring):
-            error_message = self.error_message
             if not error_message:
                 # default fallback message
                 error_message = current.T("Enter a valid phone number")
 
             return (value, error_message)
 
+
         value = value.strip()
         if value and value[0] == unichr(8206):
             # Strip the LRM character
             value = value[1:]
         number = s3_str(value)
-        number, error_message = s3_single_phone_requires(number)
+        number, in_error = s3_single_phone_requires(number)
 
         # Check if we need the international format if no error
-        if not error_message and self.international and \
+        if not in_error and self.international and \
            current.deployment_settings \
                   .get_msg_require_international_phone_numbers():
 
@@ -1996,6 +1997,11 @@ class IS_PHONE_NUMBER(Validator):
                 # set new error message if no class error message
                 if not error_message:
                     error_message = current.T("Enter phone number in international format like +46783754957")
+
+        if in_error:
+            if not error_message:
+                # default fallback message
+                error_message = current.T("Enter a valid phone number")
 
         return (number, error_message)
 
