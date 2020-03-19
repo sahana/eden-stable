@@ -5,7 +5,6 @@
 """
 
 module = request.controller
-resourcename = request.function
 
 if not settings.has_module(module):
     raise HTTP(404, body="Module disabled: %s" % module)
@@ -21,11 +20,11 @@ def index_alt():
     """ Default Module Homepage """
 
     from gluon import current
-    if auth.s3_has_permission("read", "pr_person", c="br", f="person"):
+    if current.auth.s3_has_permission("read", "pr_person", c="br", f="person"):
         # Just redirect to list of current cases
         s3_redirect_default(URL(f="person", vars={"closed": "0"}))
 
-    return {"module_name": settings.modules["br"].name_nice}
+    return {"module_name": settings.modules["br"].get("name_nice")}
 
 # =============================================================================
 # Case File and Component Tabs
