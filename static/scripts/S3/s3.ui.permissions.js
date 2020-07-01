@@ -1,7 +1,7 @@
 /**
  * jQuery UI Widget to edit permissions of a user role
  *
- * @copyright 2018-2019 (c) Sahana Software Foundation
+ * @copyright 2018-2020 (c) Sahana Software Foundation
  * @license MIT
  *
  * requires jQuery 1.9.1+
@@ -993,6 +993,7 @@
                         trigger.closest('.rm-module-add').hide().after(newRow);
                     } else {
                         // Append the new row to the tbody immediately
+                        this.rules.push(rule);
                         $('tbody', ruleTable).append(newRow);
                         trigger.closest('.rm-module-add').hide();
                     }
