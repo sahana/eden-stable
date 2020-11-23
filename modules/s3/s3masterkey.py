@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: (c) 2010-2019 Sahana Software Foundation
+    @copyright: (c) 2010-2020 Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -34,8 +34,8 @@ __all__ = ("S3MasterKey",
 
 import base64
 import datetime
-import uuid
 import json
+from uuid import uuid4
 
 from gluon import CRYPT, current
 
@@ -106,7 +106,7 @@ class S3MasterKey(object):
         cls.__purge()
 
         # Generate new token
-        token = uuid.uuid4().hex
+        token = uuid4().hex
         token_ttl = current.deployment_settings.get_auth_masterkey_token_ttl()
         expires_on = datetime.datetime.utcnow() + datetime.timedelta(seconds=token_ttl)
 

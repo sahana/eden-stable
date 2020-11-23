@@ -2,7 +2,7 @@
 
 """ S3 SQL Forms
 
-    @copyright: 2012-2019 (c) Sahana Software Foundation
+    @copyright: 2012-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -54,6 +54,7 @@ from s3dal import Field, original_tablename
 from .s3query import FS
 from .s3utils import s3_mark_required, s3_store_last_record_id, s3_str, s3_validate
 from .s3widgets import S3Selector, S3UploadWidget
+from .s3validators import JSONERRORS
 
 # Compact JSON encoding
 SEPARATORS = (",", ":")
@@ -110,6 +111,18 @@ class S3SQLForm(object):
 
         self.attr = attr
         self.opts = opts
+
+        self.prefix = None
+        self.name = None
+        self.resource = None
+
+        self.tablename = None
+        self.table = None
+        self.record_id = None
+
+        self.subtables = None
+        self.subrows = None
+        self.components = None
 
     # -------------------------------------------------------------------------
     # Rendering/Processing
@@ -186,10 +199,11 @@ class S3SQLForm(object):
             for name, label, _class in submit:
                 if isinstance(label, basestring):
                     label = T(label)
-                button = INPUT(_type="submit",
-                               _class="btn crud-submit-button",
-                               _name=name,
-                               _value=label)
+                button = INPUT(_type = "submit",
+                               _class = "btn crud-submit-button",
+                               _name = name,
+                               _value = label,
+                               )
                 if _class:
                     button.add_class(_class)
                 buttons.append(button)
@@ -203,8 +217,9 @@ class S3SQLForm(object):
                     submit_label = T(settings.submit_button)
                 else:
                     submit_label = T("Save")
-                submit_button = INPUT(_type="submit",
-                                      _value=submit_label)
+                submit_button = INPUT(_type = "submit",
+                                      _value = submit_label,
+                                      )
                 if settings.submit_style:
                     submit_button.add_class(settings.submit_style)
                 buttons = [submit_button]
@@ -214,7 +229,8 @@ class S3SQLForm(object):
                 cancel_button = cancel
             else:
                 cancel_button = A(T("Cancel"),
-                                  _class="cancel-form-btn action-lnk")
+                                  _class = "cancel-form-btn action-lnk",
+                                  )
                 if isinstance(cancel, dict):
                     # Script-controlled cancel button (embedded form)
                     if "script" in cancel:
@@ -228,7 +244,7 @@ class S3SQLForm(object):
                 elif s3.cancel is True:
                     cancel_button.add_class("s3-cancel")
                 else:
-                    cancel_button.update(_href=s3.cancel)
+                    cancel_button.update(_href = s3.cancel)
             buttons.append(cancel_button)
 
         return buttons
@@ -329,170 +345,15 @@ class S3SQLForm(object):
             else:
                 i += 1
 
-# =============================================================================
-class S3SQLDefaultForm(S3SQLForm):
-    """ Standard SQL form """
-
     # -------------------------------------------------------------------------
-    # Rendering/Processing
-    # -------------------------------------------------------------------------
-    def __call__(self,
-                 request=None,
-                 resource=None,
-                 record_id=None,
-                 readonly=False,
-                 message="Record created/updated",
-                 format=None,
-                 **options):
-        """
-            Render/process the form.
-
-            @param request: the S3Request
-            @param resource: the target S3Resource
-            @param record_id: the record ID
-            @param readonly: render the form read-only
-            @param message: message upon successful form submission
-            @param format: data format extension (for audit)
-            @param options: keyword options for the form
-
-            @todo: describe keyword arguments
-
-            @return: a FORM instance
-        """
-
-        if resource is None:
-            self.resource = request.resource
-            self.prefix, self.name, self.table, self.tablename = \
-                request.target()
-        else:
-            self.resource = resource
-            self.prefix = resource.prefix
-            self.name = resource.name
-
-            self.tablename = resource.tablename
-            self.table = resource.table
-
-        response = current.response
-        s3 = response.s3
-        settings = s3.crud
-
-        prefix = self.prefix
-        name = self.name
-        tablename = self.tablename
-        table = self.table
-
-        record = None
-        labels = None
-
-        self.record_id = record_id
-
-        if not readonly:
-            _get = options.get
-
-            # Pre-populate create-form?
-            if record_id is None:
-                data = _get("data", None)
-                from_table = _get("from_table", None)
-                from_record = _get("from_record", None)
-                map_fields = _get("map_fields", None)
-                record = self.prepopulate(from_table=from_table,
-                                          from_record=from_record,
-                                          map_fields=map_fields,
-                                          data=data,
-                                          format=format)
-
-            # De-duplicate link table entries
-            self.record_id = record_id = self.deduplicate_link(request, record_id)
-
-            # Add asterisk to labels of required fields
-            mark_required = self._config("mark_required", default=[])
-            labels, required = s3_mark_required(table, mark_required)
-            if required:
-                # Show the key if there are any required fields.
-                s3.has_required = True
-            else:
-                s3.has_required = False
-
-        # Determine form style
-        if format == "plain":
-            # Default formstyle works best when we have no formatting
-            formstyle = "table3cols"
-        elif readonly:
-            formstyle = settings.formstyle_read
-        else:
-            formstyle = settings.formstyle
-
-        # Submit buttons
-        buttons = self._submit_buttons(readonly)
-
-        # Generate the form
-        if record is None:
-            record = record_id
-        response.form_label_separator = ""
-        form = SQLFORM(table,
-                       record = record,
-                       record_id = record_id,
-                       readonly = readonly,
-                       comments = not readonly,
-                       deletable = False,
-                       showid = False,
-                       upload = s3.download_url,
-                       labels = labels,
-                       formstyle = formstyle,
-                       separator = "",
-                       submit_button = settings.submit_button,
-                       buttons = buttons)
-
-        # Style the Submit button, if-requested
-        if settings.submit_style and not settings.custom_submit:
-            try:
-                form[0][-1][0][0]["_class"] = settings.submit_style
-            except:
-                # Submit button has been removed or a different formstyle,
-                # such as Bootstrap (which is already styled anyway)
-                pass
-
-        # Subheadings
-        subheadings = options.get("subheadings", None)
-        if subheadings:
-            self._insert_subheadings(form, tablename, formstyle, subheadings)
-
-        # Process the form
-        logged = False
-        if not readonly:
-            link = _get("link")
-            hierarchy = _get("hierarchy")
-            onvalidation = _get("onvalidation")
-            onaccept = _get("onaccept")
-            success, error = self.process(form,
-                                          request.post_vars,
-                                          onvalidation = onvalidation,
-                                          onaccept = onaccept,
-                                          hierarchy = hierarchy,
-                                          link = link,
-                                          http = request.http,
-                                          format = format,
-                                          )
-            if success:
-                response.confirmation = message
-                logged = True
-            elif error:
-                response.error = error
-
-        # Audit read
-        if not logged and not form.errors:
-            current.audit("read", prefix, name,
-                          record=record_id, representation=format)
-
-        return form
-
-    # -------------------------------------------------------------------------
-    def prepopulate(self,
-                    from_table=None,
-                    from_record=None,
-                    map_fields=None,
-                    data=None,
-                    format=None):
+    def _populate(self,
+                  from_table = None,
+                  from_record = None,
+                  map_fields = None,
+                  data = None,
+                  formfields = None,
+                  format = None,
+                  ):
         """
             Pre-populate the form with values from a previous record or
             controller-submitted data
@@ -546,28 +407,187 @@ class S3SQLDefaultForm(S3SQLForm):
             row = current.db(query).select(limitby=(0, 1), *fields).first()
             if row:
                 if isinstance(map_fields, dict):
-                    record = Storage([(f, row[map_fields[f]])
-                                      for f in map_fields])
+                    record = {f: row[map_fields[f]] for f in map_fields}
                 else:
-                    record = Storage(row)
+                    record = row.as_dict()
 
         # Pre-populate from call?
         elif isinstance(data, dict):
-            record = Storage([(f, data[f])
-                              for f in data
-                                if f in table.fields and
-                                   table[f].writable])
+            record = {f: data[f] for f in data
+                                 if f in table.fields and table[f].writable}
 
         # Add missing fields to pre-populated record
         if record:
-            missing_fields = Storage()
-            for f in table.fields:
-                if f not in record and table[f].writable:
-                    missing_fields[f] = table[f].default
+            missing_fields = {}
+            if formfields:
+                for f in formfields:
+                    fname = f.name
+                    if fname not in record and f.writable:
+                        missing_fields[fname] = f.default
+            else:
+                for f in table.fields:
+                    if f not in record and table[f].writable:
+                        missing_fields[f] = table[f].default
             record.update(missing_fields)
             record[table._id.name] = None
 
         return record
+
+# =============================================================================
+class S3SQLDefaultForm(S3SQLForm):
+    """ Standard SQL form """
+
+    # -------------------------------------------------------------------------
+    # Rendering/Processing
+    # -------------------------------------------------------------------------
+    def __call__(self,
+                 request = None,
+                 resource = None,
+                 record_id = None,
+                 readonly = False,
+                 message = "Record created/updated",
+                 format = None,
+                 **options):
+        """
+            Render/process the form.
+
+            @param request: the S3Request
+            @param resource: the target S3Resource
+            @param record_id: the record ID
+            @param readonly: render the form read-only
+            @param message: message upon successful form submission
+            @param format: data format extension (for audit)
+            @param options: keyword options for the form
+
+            @todo: describe keyword arguments
+
+            @return: a FORM instance
+        """
+
+        if resource is None:
+            self.resource = request.resource
+            self.prefix, self.name, self.table, self.tablename = \
+                request.target()
+        else:
+            self.resource = resource
+            self.prefix = resource.prefix
+            self.name = resource.name
+
+            self.tablename = resource.tablename
+            self.table = resource.table
+
+        response = current.response
+        s3 = response.s3
+        settings = s3.crud
+
+        prefix = self.prefix
+        name = self.name
+        tablename = self.tablename
+        table = self.table
+
+        record = None
+        labels = None
+
+        self.record_id = record_id
+
+        if not readonly:
+            get_option = options.get
+
+            # Populate create-form from another record?
+            if record_id is None:
+                data = get_option("data")
+                from_table = get_option("from_table")
+                from_record = get_option("from_record")
+                map_fields = get_option("map_fields")
+                record = self._populate(from_table = from_table,
+                                        from_record = from_record,
+                                        map_fields = map_fields,
+                                        data = data,
+                                        format = format,
+                                        )
+
+            # De-duplicate link table entries
+            self.record_id = record_id = self.deduplicate_link(request, record_id)
+
+            # Add asterisk to labels of required fields
+            mark_required = self._config("mark_required", default=[])
+            labels, required = s3_mark_required(table, mark_required)
+
+            # Show required-hint if there are any required fields.
+            s3.has_required = required
+
+        # Determine form style
+        if format == "plain":
+            # Default formstyle works best when we have no formatting
+            formstyle = "table3cols"
+        elif readonly:
+            formstyle = settings.formstyle_read
+        else:
+            formstyle = settings.formstyle
+
+        # Submit buttons
+        buttons = self._submit_buttons(readonly)
+
+        # Generate the form
+        if record is None:
+            record = record_id
+        response.form_label_separator = ""
+        form = SQLFORM(table,
+                       record = record,
+                       record_id = record_id,
+                       readonly = readonly,
+                       comments = not readonly,
+                       deletable = False,
+                       showid = False,
+                       upload = s3.download_url,
+                       labels = labels,
+                       formstyle = formstyle,
+                       separator = "",
+                       submit_button = settings.submit_button,
+                       buttons = buttons)
+
+        # Style the Submit button, if-requested
+        if settings.submit_style and not settings.custom_submit:
+            try:
+                form[0][-1][0][0]["_class"] = settings.submit_style
+            except:
+                # Submit button has been removed or a different formstyle,
+                # such as Bootstrap (which is already styled anyway)
+                pass
+
+        # Subheadings
+        subheadings = options.get("subheadings", None)
+        if subheadings:
+            self._insert_subheadings(form, tablename, formstyle, subheadings)
+
+        # Process the form
+        logged = False
+        if not readonly:
+            link = get_option("link")
+            hierarchy = get_option("hierarchy")
+            onvalidation = get_option("onvalidation")
+            onaccept = get_option("onaccept")
+            success, error = self.process(form,
+                                          request.post_vars,
+                                          onvalidation = onvalidation,
+                                          onaccept = onaccept,
+                                          hierarchy = hierarchy,
+                                          link = link,
+                                          http = request.http,
+                                          format = format,
+                                          )
+            if success:
+                response.confirmation = message
+                logged = True
+            elif error:
+                response.error = error
+
+        # Audit read
+        if not logged and not form.errors:
+            current.audit("read", prefix, name,
+                          record=record_id, representation=format)
+
+        return form
 
     # -------------------------------------------------------------------------
     def deduplicate_link(self, request, record_id):
@@ -924,23 +944,20 @@ class S3SQLCustomForm(S3SQLForm):
         if not readonly:
             mark_required = self._config("mark_required", default=[])
             labels, required = s3_mark_required(self.table, mark_required)
-            if required:
-                # Show the key if there are any required fields.
-                s3.has_required = True
-            else:
-                s3.has_required = False
+            # Show the required-hint if there are any required fields.
+            s3.has_required = required
         else:
             labels = None
 
         # Choose formstyle
-        settings = s3.crud
+        crud_settings = s3.crud
         if format == "plain":
             # Simple formstyle works best when we have no formatting
             formstyle = "table3cols"
         elif readonly:
-            formstyle = settings.formstyle_read
+            formstyle = crud_settings.formstyle_read
         else:
-            formstyle = settings.formstyle
+            formstyle = crud_settings.formstyle
 
         # Retrieve the record
         record = None
@@ -963,20 +980,18 @@ class S3SQLCustomForm(S3SQLForm):
             subrows = self.subrows
             for alias in subtables:
 
-                # Get the join for this subtable
+                # Get the component
                 component = rcomponents.get(alias)
                 if not component or component.multiple:
                     continue
-                join = component.get_join()
-                q = query & join
 
-                # Retrieve the row
-                # @todo: Should not need .ALL here
-                row = db(q).select(component.table.ALL,
-                                   limitby = (0, 1),
-                                   ).first()
+                # Get the subtable row from the DB
+                subfields = subtable_fields.get(alias)
+                if subfields:
+                    subfields = [f[0] for f in subfields]
+                row = self._subrow(query, component, fields=subfields)
 
-                # Check permission for this subrow
+                # Check permission for this subtable row
                 ctname = component.tablename
                 if not row:
                     permitted = has_permission("create", ctname)
@@ -1077,6 +1092,17 @@ class S3SQLCustomForm(S3SQLForm):
         # Aggregate the form fields
         formfields = [f[-1] for f in fields]
 
+        # Prepopulate from another record?
+        get_option = options.get
+        if not record_id and request.http == "GET":
+            data = self._populate(from_table = get_option("from_table"),
+                                  from_record = get_option("from_record"),
+                                  map_fields = get_option("map_fields"),
+                                  data = get_option("data"),
+                                  format = format,
+                                  formfields = formfields
+                                  )
+
         # Submit buttons
         buttons = self._submit_buttons(readonly)
 
@@ -1091,21 +1117,21 @@ class S3SQLCustomForm(S3SQLForm):
                                upload = s3.download_url,
                                readonly = readonly,
                                separator = "",
-                               submit_button = settings.submit_button,
+                               submit_button = crud_settings.submit_button,
                                buttons = buttons,
                                *formfields)
 
         # Style the Submit button, if-requested
-        if settings.submit_style and not settings.custom_submit:
+        if crud_settings.submit_style and not crud_settings.custom_submit:
             try:
-                form[0][-1][0][0]["_class"] = settings.submit_style
-            except:
+                form[0][-1][0][0]["_class"] = crud_settings.submit_style
+            except (KeyError, IndexError, TypeError):
                 # Submit button has been removed or a different formstyle,
                 # such as Bootstrap (which is already styled anyway)
                 pass
 
         # Subheadings
-        subheadings = options.get("subheadings", None)
+        subheadings = get_option("subheadings", None)
         if subheadings:
             self._insert_subheadings(form, tablename, formstyle, subheadings)
 
@@ -1126,12 +1152,10 @@ class S3SQLCustomForm(S3SQLForm):
             else:
                 undelete = False
 
-            link = options.get("link")
-            hierarchy = options.get("hierarchy")
             self.accept(form,
                         format = format,
-                        link = link,
-                        hierarchy = hierarchy,
+                        link = get_option("link"),
+                        hierarchy = get_option("hierarchy"),
                         undelete = undelete,
                         )
             # Post-process the form submission after all records have
@@ -1237,7 +1261,7 @@ class S3SQLCustomForm(S3SQLForm):
                format = None,
                link = None,
                hierarchy = None,
-               undelete = False
+               undelete = False,
                ):
         """
             Create/update all records from the form.
@@ -1250,33 +1274,43 @@ class S3SQLCustomForm(S3SQLForm):
         """
 
         db = current.db
+
+        resource = self.resource
         table = self.table
 
+        accept_row = self._accept
+        input_data = self._extract
+
         # Create/update the main record
-        main_data = self._extract(form)
-        master_id, master_form_vars = self._accept(self.record_id,
-                                                   main_data,
-                                                   format = format,
-                                                   link = link,
-                                                   hierarchy = hierarchy,
-                                                   undelete = undelete,
-                                                   )
+        main_data = input_data(form)
+        master_id, master_form_vars = accept_row(self.record_id,
+                                                 main_data,
+                                                 format = format,
+                                                 link = link,
+                                                 hierarchy = hierarchy,
+                                                 undelete = undelete,
+                                                 )
         if not master_id:
             return
         else:
+            master_query = (table._id == master_id)
             main_data[table._id.name] = master_id
             # Make sure lastid is set even if master has no data
             # (otherwise *_next redirection will fail)
-            self.resource.lastid = str(master_id)
+            resource.lastid = str(master_id)
 
         # Create or update the subtables
+        get_subrow = self._subrow
         for alias in self.subtables:
 
-            subdata = self._extract(form, alias=alias)
+            # Get the data for this subtable from the form
+            subdata = input_data(form, alias=alias)
             if not subdata:
                 continue
 
-            component = self.resource.components[alias]
+            component = resource.components[alias]
+            if not component or component.multiple:
+                return
             subtable = component.table
 
             # Get the key (pkey) of the master record to link the
@@ -1284,7 +1318,8 @@ class S3SQLCustomForm(S3SQLForm):
             pkey = component.pkey
             if pkey != table._id.name and pkey not in main_data:
                 row = db(table._id == master_id).select(table[pkey],
-                                                        limitby=(0, 1)).first()
+                                                        limitby = (0, 1),
+                                                        ).first()
                 if not row:
                     return
                 main_data[pkey] = row[table[pkey]]
@@ -1297,10 +1332,10 @@ class S3SQLCustomForm(S3SQLForm):
                 subdata[component.fkey] = main_data[pkey]
 
             # Do we already have a record for this component?
-            rows = self.subrows
-            if alias in rows and rows[alias] is not None:
+            subrow = get_subrow(master_query, component, fields=[subtable._id.name])
+            if subrow:
                 # Yes => get the subrecord ID
-                subid = rows[alias][subtable._id]
+                subid = subrow[subtable._id]
             else:
                 # No => apply component defaults
                 subid = None
@@ -1308,12 +1343,12 @@ class S3SQLCustomForm(S3SQLForm):
                                                  data = subdata,
                                                  )
             # Accept the subrecord
-            self._accept(subid,
-                         subdata,
-                         alias = alias,
-                         link = link,
-                         format = format,
-                         )
+            accept_row(subid,
+                       subdata,
+                       alias = alias,
+                       link = link,
+                       format = format,
+                       )
 
         # Accept components (e.g. Inline-Forms)
         for item in self.components:
@@ -1332,6 +1367,39 @@ class S3SQLCustomForm(S3SQLForm):
             if var not in form_vars:
                 form_vars[var] = master_form_vars[var]
         return
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _subrow(master_query, component, fields=None):
+        """
+            Extract the current row from a single-component
+
+            @param master_query: query for the master record
+            @param component: the single-component (S3Resource)
+            @param fields: list of field names to extract
+        """
+
+        # Get the join for this subtable
+        if not component or component.multiple:
+            return None
+        query = master_query & component.get_join()
+
+        table = component.table
+        if fields:
+            # Map field names to component table
+            try:
+                fields = [table[f] for f in fields]
+            except (KeyError, AttributeError):
+                fields = None
+            else:
+                fields.insert(0, table._id)
+        if not fields:
+            fields = [table.ALL]
+
+        # Retrieve the row
+        return current.db(query).select(*fields,
+                                        limitby = (0, 1)
+                                        ).first()
 
     # -------------------------------------------------------------------------
     # Utility functions
@@ -2077,11 +2145,12 @@ class SKIP_POST_VALIDATION(Validator):
             if hasattr(other, "formatter"):
                 self.formatter = other.formatter
 
-    def __call__(self, value):
+    def __call__(self, value, record_id=None):
         """
             Validation
 
             @param value: the value
+            @param record_id: the record ID (unused, for API compatibility)
         """
 
         other = self.other
@@ -2466,6 +2535,15 @@ class S3SQLInlineComponent(S3SQLSubForm):
 
     prefix = "sub"
 
+    def __init__(self, selector, **options):
+
+        super(S3SQLInlineComponent, self).__init__(selector, **options)
+
+        self.alias = None
+        self.resource = None
+
+        self.upload = {}
+
     # -------------------------------------------------------------------------
     def resolve(self, resource):
         """
@@ -2700,12 +2778,13 @@ class S3SQLInlineComponent(S3SQLSubForm):
         return json.dumps(data, separators=SEPARATORS)
 
     # -------------------------------------------------------------------------
-    def parse(self, value):
+    def parse(self, value, record_id=None):
         """
             Validator method, converts the JSON returned from the input
             field into a Python object.
 
             @param value: the JSON from the input field.
+            @param record_id: the record ID (unused, for API compatibility)
             @return: tuple of (value, error), where value is the converted
                       JSON, and error the error message if the decoding
                       fails, otherwise None
@@ -2715,7 +2794,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
         if isinstance(value, basestring):
             try:
                 value = json.loads(value)
-            except:
+            except JSONERRORS:
                 import sys
                 error = sys.exc_info()[1]
                 if hasattr(error, "message"):
@@ -2759,8 +2838,6 @@ class S3SQLInlineComponent(S3SQLSubForm):
             value = json.dumps(value, separators=SEPARATORS)
         if data is None:
             raise SyntaxError("No resource structure information")
-
-        self.upload = Storage()
 
         if options.multiple is False:
             multiple = False
@@ -2831,14 +2908,8 @@ class S3SQLInlineComponent(S3SQLSubForm):
                     deletable = False
             else:
                 record_id = None
-                if _editable:
-                    editable = True
-                else:
-                    editable = False
-                if _deletable:
-                    deletable = True
-                else:
-                    deletable = False
+                editable = bool(_editable)
+                deletable = bool(_deletable)
 
             # Render read-row accordingly
             rowname = "%s-%s" % (formname, i)
@@ -3065,19 +3136,19 @@ class S3SQLInlineComponent(S3SQLSubForm):
             try:
                 data = json.loads(form.vars[fname])
             except ValueError:
-                return
+                return False
             component_name = data.get("component", None)
             if not component_name:
-                return
+                return False
             data = data.get("data", None)
             if not data:
-                return
+                return False
 
             # Get the component
             resource = self.resource
             component = resource.components.get(component_name)
             if not component:
-                return
+                return False
 
             # Link table handling
             link = component.link
@@ -3230,7 +3301,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                                   limitby = (0, 1)
                                                   ).first()
                         if not master:
-                            return
+                            return False
                     else:
                         master = Storage({pkey: master_id})
 
@@ -3373,7 +3444,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
 
         s3 = current.response.s3
 
-        rowtype = readonly and "read" or "edit"
+        rowtype = "read" if readonly else "edit"
         pkey = table._id.name
 
         data = {}
@@ -3502,7 +3573,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
 
         filterby = self.options["filterby"]
         if not filterby:
-            return
+            return None
         if not isinstance(filterby, (list, tuple)):
             filterby = [filterby]
 

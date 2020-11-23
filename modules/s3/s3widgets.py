@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: 2009-2019 (c) Sahana Software Foundation
+    @copyright: 2009-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -89,6 +89,7 @@ import datetime
 import json
 import os
 import re
+from uuid import uuid4
 
 try:
     from dateutil.relativedelta import relativedelta
@@ -164,19 +165,23 @@ class S3ACLWidget(CheckboxesWidget):
         opts = []
         cols = attributes.get("cols", 1)
         totals = len(options)
-        mods = totals%cols
-        rows = totals/cols
+        mods = totals % cols
+        rows = totals / cols
         if mods:
             rows += 1
 
         for r_index in range(rows):
             tds = []
             for k, v in options[r_index*cols:(r_index+1)*cols]:
-                tds.append(TD(INPUT(_type="checkbox",
-                                    _name=attr.get("_name", field.name),
-                                    requires=attr.get("requires", None),
-                                    hideerror=True, _value=k,
-                                    value=(k in value)), v))
+                tds.append(TD(INPUT(_type = "checkbox",
+                                    _name = attr.get("_name", field.name),
+                                    requires = attr.get("requires", None),
+                                    hideerror = True,
+                                    _value = k,
+                                    value = (k in value)
+                                    ),
+                              v
+                              ))
             opts.append(TR(tds))
 
         if opts:
@@ -218,7 +223,7 @@ class S3AddObjectWidget(FormWidget):
                  dummy_field_selector,
                  on_show,
                  on_hide
-                ):
+                 ):
 
         self.form_url = form_url
         self.table_name = table_name
@@ -1048,11 +1053,12 @@ class S3AddPersonWidget(FormWidget):
         current.response.s3.js_global.append("\n".join(strings))
 
     # -------------------------------------------------------------------------
-    def validate(self, value):
+    def validate(self, value, record_id=None):
         """
             Validate main input value
 
             @param value: the main input value (JSON)
+            @param record_id: the record ID (unused, for API compatibility)
 
             @return: tuple (id, error), where "id" is the record ID of the
                      selected or newly created record
@@ -1082,14 +1088,14 @@ class S3AddPersonWidget(FormWidget):
         # Validate phone numbers
         mobile = data.get("mobile_phone")
         if mobile:
-            validator = IS_PHONE_NUMBER(international=True)
+            validator = IS_PHONE_NUMBER_SINGLE(international=True)
             mobile, error = validator(mobile)
             if error:
                 return (None, error)
 
         home_phone = data.get("home_phone")
         if home_phone:
-            validator = IS_PHONE_NUMBER()
+            validator = IS_PHONE_NUMBER_MULTI()
             home_phone, error = validator(home_phone)
             if error:
                 return (None, error)
@@ -1385,7 +1391,7 @@ class S3AgeWidget(FormWidget):
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def date_as_age(value, row=None):
+    def date_as_age(value, record_id=None):
         """
             Convert a date value into age in years, can be used as
             representation method
@@ -1460,7 +1466,7 @@ class S3AutocompleteWidget(FormWidget):
         settings = current.deployment_settings
 
         default = {"_type": "text",
-                   "value": (value is not None and str(value)) or "",
+                   "value": str(value) if value is not None else "",
                    }
         attr = StringWidget._attributes(field, default, **attributes)
 
@@ -1514,19 +1520,22 @@ class S3AutocompleteWidget(FormWidget):
             text = s3_unicode(field.represent(value))
             if "<" in text:
                 text = s3_strip_markup(text)
-            represent = text
+            represent = s3_str(text)
         else:
             represent = ""
 
         s3.js_global.append('''i18n.none_of_the_above="%s"''' % current.T("None of the above"))
 
-        return TAG[""](INPUT(_id=dummy_input,
-                             _class="string",
-                             _value=represent.encode("utf-8")),
-                       DIV(_id="%s_throbber" % dummy_input,
-                           _class="throbber input_throbber hide"),
+        return TAG[""](INPUT(_id = dummy_input,
+                             # Required to retain label on error:
+                             _name = dummy_input,
+                             _class = "string",
+                             value = represent,
+                             ),
+                       DIV(_id = "%s_throbber" % dummy_input,
+                           _class = "throbber input_throbber hide",
+                           ),
                        INPUT(**attr),
-                       requires = field.requires
                        )
 
 # =============================================================================
@@ -3008,7 +3017,7 @@ def S3GenericAutocompleteTemplate(post_process,
         text = s3_unicode(field.represent(value))
         if "<" in text:
             text = s3_strip_markup(text)
-        represent = text.encode("utf-8")
+        represent = s3_str(text)
     else:
         represent = ""
 
@@ -3032,13 +3041,15 @@ def S3GenericAutocompleteTemplate(post_process,
              "min_length": min_length,
              }
     current.response.s3.jquery_ready.append(script)
-    return TAG[""](INPUT(_id=dummy_input,
-                         _class="string",
-                         value=represent),
-                   DIV(_id="%s_throbber" % dummy_input,
-                       _class="throbber input_throbber hide"),
+    return TAG[""](INPUT(_id = dummy_input,
+                         # Required to retain label on error:
+                         _name = dummy_input,
+                         _class = "string",
+                         value = represent,
+                         ),
+                   DIV(_id = "%s_throbber" % dummy_input,
+                       _class = "throbber input_throbber hide"),
                    INPUT(**attr),
-                   requires = field.requires
                    )
 
 #==============================================================================
@@ -3586,7 +3597,7 @@ class S3HumanResourceAutocompleteWidget(FormWidget):
             group = "deploy"
 
         default = {"_type": "text",
-                   "value": (value is not None and str(value)) or "",
+                   "value": str(value) if value is not None else "",
                    }
         attr = StringWidget._attributes(field, default, **attributes)
 
@@ -3608,7 +3619,7 @@ class S3HumanResourceAutocompleteWidget(FormWidget):
             text = s3_unicode(field.represent(value))
             if "<" in text:
                 text = s3_strip_markup(text)
-            represent = text
+            represent = s3_str(text)
         else:
             represent = ""
 
@@ -3630,13 +3641,16 @@ class S3HumanResourceAutocompleteWidget(FormWidget):
 
         current.response.s3.jquery_ready.append(script)
 
-        return TAG[""](INPUT(_id=dummy_input,
-                             _class="string",
-                             _value=represent.encode("utf-8")),
-                       DIV(_id="%s_throbber" % dummy_input,
-                           _class="throbber input_throbber hide"),
+        return TAG[""](INPUT(_id = dummy_input,
+                             # Required to retain label on error:
+                             _name = dummy_input,
+                             _class = "string",
+                             _value = represent,
+                             ),
+                       DIV(_id = "%s_throbber" % dummy_input,
+                           _class = "throbber input_throbber hide",
+                           ),
                        INPUT(**attr),
-                       requires = field.requires
                        )
 
 # =============================================================================
@@ -3788,8 +3802,7 @@ i18n.upload_image='%s' ''' % (T("Please select a valid image!"),
         append(display_div)
         # Prevent multiple widgets on the same page from interfering with each
         # other.
-        import uuid
-        uid = "cropwidget-%s" % uuid.uuid4().hex
+        uid = "cropwidget-%s" % uuid4().hex
         for element in elements:
             element.attributes["_data-uid"] = uid
 
@@ -4051,7 +4064,7 @@ class S3LocationAutocompleteWidget(FormWidget):
                 counter += 1
 
         default = {"_type": "text",
-                   "value": (value is not None and s3_unicode(value)) or "",
+                   "value": s3_str(value) if value is not None else "",
                    }
         attr = StringWidget._attributes(field, default, **attributes)
 
@@ -4074,7 +4087,7 @@ class S3LocationAutocompleteWidget(FormWidget):
             text = s3_unicode(field.represent(value))
             if "<" in text:
                 text = s3_strip_markup(text)
-            represent = text.encode("utf-8")
+            represent = s3_str(text)
         else:
             represent = ""
 
@@ -4096,13 +4109,16 @@ class S3LocationAutocompleteWidget(FormWidget):
         # Close
         script = "%s)" % script
         current.response.s3.jquery_ready.append(script)
-        return TAG[""](INPUT(_id=dummy_input,
-                             _class="string",
-                             value=represent),
-                       DIV(_id="%s_throbber" % dummy_input,
-                           _class="throbber input_throbber hide"),
+        return TAG[""](INPUT(_id = dummy_input,
+                             # Required to retain label on error:
+                             _name = dummy_input,
+                             _class = "string",
+                             value = represent,
+                             ),
+                       DIV(_id = "%s_throbber" % dummy_input,
+                           _class = "throbber input_throbber hide",
+                           ),
                        INPUT(**attr),
-                       requires = field.requires
                        )
 
 # =============================================================================
@@ -4362,7 +4378,7 @@ class S3Selector(FormWidget):
         return values, None
 
     # -------------------------------------------------------------------------
-    def postprocess(self, value):
+    def postprocess(self, value, record_id=None):
         """
             Post-process to create or update records. Called during POST
             before validation of the outer form.
@@ -4370,6 +4386,7 @@ class S3Selector(FormWidget):
             To be implemented in subclass.
 
             @param value: the value from the form (as JSON)
+            @param record_id: the record ID (unused, for API compatibility)
             @return: tuple (record_id, error)
         """
 
@@ -4495,6 +4512,7 @@ class S3LocationSelector(S3Selector):
         * Doesn't support manual entry of LatLons
         * Doesn't allow selection of existing specific Locations
         * Doesn't support variable Levels by Country
+        * Doesn't handle renamed fields (like Merge form)
         * Use in an InlineComponent with multiple=False needs completing:
             - Validation errors cause issues
             - Needs more testing
@@ -4807,7 +4825,7 @@ class S3LocationSelector(S3Selector):
 
         # Load initial Hierarchy Labels (for Lx dropdowns)
         labels, labels_compact = self._labels(levels,
-                                              country=values.get("L0"),
+                                              country = values.get("L0"),
                                               )
 
         # Load initial Hierarchy Locations (to populate Lx dropdowns)
@@ -4877,8 +4895,8 @@ class S3LocationSelector(S3Selector):
                                      fieldname,
                                      levels,
                                      labels,
-                                     multiselect=multiselect,
-                                     required=required,
+                                     multiselect = multiselect,
+                                     required = required,
                                      )
         components.update(lx_rows)
 
@@ -4894,8 +4912,8 @@ class S3LocationSelector(S3Selector):
             toggle_id = fieldname + "_latlon_toggle"
             components["latlon_toggle"] = ("",
                                            A(latlon_label,
-                                             _id=toggle_id,
-                                             _class="action-lnk",
+                                             _id = toggle_id,
+                                             _class = "action-lnk",
                                              ),
                                            toggle_id,
                                            False,
@@ -5006,11 +5024,11 @@ class S3LocationSelector(S3Selector):
 
         # The overall layout of the components
         visible_components = self._layout(components,
-                                          map_icon=map_icon,
-                                          inline=is_inline,
+                                          map_icon = map_icon,
+                                          inline = is_inline,
                                           )
 
-        return TAG[""](DIV(_class="throbber"),
+        return TAG[""](DIV(_class = "throbber"),
                        real_input,
                        visible_components,
                        )
@@ -5247,8 +5265,9 @@ class S3LocationSelector(S3Selector):
                                                 gtable.lon_min,
                                                 gtable.lat_max,
                                                 gtable.lon_max,
-                                                cache=s3db.cache,
-                                                limitby=(0, 1)).first()
+                                                cache = s3db.cache,
+                                                limitby = (0, 1)
+                                                ).first()
             try:
                 bounds = [record.lon_min,
                           record.lat_min,
@@ -5275,8 +5294,9 @@ class S3LocationSelector(S3Selector):
                                           gtable.lon_min,
                                           gtable.lat_max,
                                           gtable.lon_max,
-                                          cache=s3db.cache,
-                                          limitby=(0, 1)).first()
+                                          cache = s3db.cache,
+                                          limitby = (0, 1)
+                                          ).first()
                 if record and record.level:
                     bounds = [record.lon_min,
                               record.lat_min,
@@ -5336,7 +5356,10 @@ class S3LocationSelector(S3Selector):
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def _layout(components, map_icon=None, formstyle=None, inline=False):
+    def _layout(components,
+                map_icon = None,
+                formstyle = None,
+                inline = False):
         """
             Overall layout for visible components
 
@@ -5370,7 +5393,7 @@ class S3LocationSelector(S3Selector):
                                     label,
                                     widget,
                                     "",
-                                    hidden=hidden,
+                                    hidden = hidden,
                                     )
                 if tuple_rows:
                     selectors.append(formrow[0])
@@ -5386,7 +5409,7 @@ class S3LocationSelector(S3Selector):
                                     label,
                                     widget,
                                     "",
-                                    hidden=hidden,
+                                    hidden = hidden,
                                     )
                 if tuple_rows:
                     inputs.append(formrow[0])
@@ -5405,8 +5428,8 @@ class S3LocationSelector(S3Selector):
                       fieldname,
                       levels,
                       labels,
-                      multiselect=False,
-                      required=False):
+                      multiselect = False,
+                      required = False):
         """
             Render the Lx-dropdowns
 
@@ -5469,12 +5492,14 @@ class S3LocationSelector(S3Selector):
                     required = False
 
             # Throbber
-            throbber = DIV(_id="%s__throbber" % _id,
-                           _class="throbber hide",
+            throbber = DIV(_id = "%s__throbber" % _id,
+                           _class = "throbber hide",
                            )
 
             if self.labels:
-                label = LABEL(label, _for=_id)
+                label = LABEL(label,
+                              _for = _id,
+                              )
             else:
                 label = ""
             selectors[level] = (label, TAG[""](widget, throbber), _id, hidden)
@@ -5491,8 +5516,8 @@ class S3LocationSelector(S3Selector):
                name,
                value,
                label,
-               hidden=False,
-               _class="string"):
+               hidden = False,
+               _class = "string"):
         """
             Render a text input (e.g. address or postcode field)
 
@@ -5508,7 +5533,9 @@ class S3LocationSelector(S3Selector):
         input_id = "%s_%s" % (fieldname, name)
 
         if label and self.labels:
-            _label = LABEL("%s:" % label, _for=input_id)
+            _label = LABEL("%s:" % label,
+                           _for = input_id,
+                           )
         else:
             _label = ""
         if label and self.placeholders:
@@ -5754,11 +5781,11 @@ i18n.map_feature_required="%s"''' % (show_map_add,
             # Need to add custom classes to core HTML markup
             map_icon = DIV(DIV(BUTTON(ICON("globe"),
                                       SPAN(label),
-                                      _type="button", # defaults to 'submit' otherwise!
-                                      _id=icon_id,
-                                      _class="btn tiny button gis_loc_select_btn",
+                                      _type = "button", # defaults to 'submit' otherwise!
+                                      _id = icon_id,
+                                      _class = "btn tiny button gis_loc_select_btn",
                                       ),
-                               _class="small-12 columns",
+                               _class = "small-12 columns",
                                ),
                            _id = row_id,
                            _class = "form-row row hide",
@@ -5767,11 +5794,11 @@ i18n.map_feature_required="%s"''' % (show_map_add,
             # Need to add custom classes to core HTML markup
             map_icon = DIV(DIV(BUTTON(ICON("icon-map"),
                                       SPAN(label),
-                                      _type="button", # defaults to 'submit' otherwise!
-                                      _id=icon_id,
-                                      _class="btn gis_loc_select_btn",
+                                      _type = "button", # defaults to 'submit' otherwise!
+                                      _id = icon_id,
+                                      _class = "btn gis_loc_select_btn",
                                       ),
-                               _class="controls",
+                               _class = "controls",
                                ),
                            _id = row_id,
                            _class = "control-group hide",
@@ -5780,11 +5807,11 @@ i18n.map_feature_required="%s"''' % (show_map_add,
             # Old default
             map_icon = DIV(DIV(BUTTON(ICON("globe"),
                                       SPAN(label),
-                                      _type="button", # defaults to 'submit' otherwise!
-                                      _id=icon_id,
-                                      _class="btn gis_loc_select_btn",
+                                      _type = "button", # defaults to 'submit' otherwise!
+                                      _id = icon_id,
+                                      _class = "btn gis_loc_select_btn",
                                       ),
-                               _class="w2p_fl",
+                               _class = "w2p_fl",
                                ),
                            _id = row_id,
                            _class = "hide",
@@ -5803,15 +5830,15 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
                                    T("Address NOT Found"),
                                    ))
 
-            map_icon.append(DIV(DIV(_class="throbber hide"),
-                                DIV(_class="geocode_success hide"),
-                                DIV(_class="geocode_fail hide"),
+            map_icon.append(DIV(DIV(_class = "throbber hide"),
+                                DIV(_class = "geocode_success hide"),
+                                DIV(_class = "geocode_fail hide"),
                                 BUTTON(T("Geocode"),
-                                       _type="button", # defaults to 'submit' otherwise!
-                                       _class="hide",
+                                       _type = "button", # defaults to 'submit' otherwise!
+                                       _class = "hide",
                                        ),
-                                _id="%s_geocode" % fieldname,
-                                _class="controls geocode",
+                                _id = "%s_geocode" % fieldname,
+                                _class = "controls geocode",
                                 ))
 
         # Inject map directly behind map icon
@@ -5865,7 +5892,8 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
                                                   table.radius,
                                                   table.addr_street,
                                                   table.addr_postcode,
-                                                  limitby=(0, 1)).first()
+                                                  limitby = (0, 1)
+                                                  ).first()
         if not record:
             raise ValueError
 
@@ -5976,32 +6004,36 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
             @return: string representation for the values dict
         """
 
-        if not value or not any(value.get(key) for key in self.keys):
+        if not value:
+            # No data
+            return current.messages["NONE"]
+        value_get = value.get
+        if not any(value_get(key) for key in self.keys):
             # No data
             return current.messages["NONE"]
 
-        lat = value.get("lat")
-        lon = value.get("lon")
-        wkt = value.get("wkt")
-        #radius = value.get("radius")
-        address = value.get("address")
-        postcode = value.get("postcode")
+        lat = value_get("lat")
+        lon = value_get("lon")
+        wkt = value_get("wkt")
+        #radius = value_get("radius")
+        address = value_get("address")
+        postcode = value_get("postcode")
 
-        record = Storage(name = value.get("name"),
+        record = Storage(name = value_get("name"),
                          lat = lat,
                          lon = lon,
                          addr_street = address,
                          addr_postcode = postcode,
-                         parent = value.get("parent"),
+                         parent = value_get("parent"),
                          )
 
         # Is this a specific location?
-        specific = value.get("specific")
+        specific = value_get("specific")
         if specific:
             record_id = specific
         elif address or postcode or lat or lon or wkt:
             specific = True
-            record_id = value.get("id")
+            record_id = value_get("id")
         else:
             record_id = None
         if not record_id:
@@ -6015,7 +6047,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
         level = None
         append = None
         for l in xrange(5, -1, -1):
-            lx = value.get("L%s" % l)
+            lx = value_get("L%s" % l)
             if lx:
                 if not level and not specific and l < 5:
                     level = l
@@ -6044,7 +6076,8 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
             limitby = (0, len(lx_ids))
             lx_names = current.db(query).select(ltable.id,
                                                 ltable.name,
-                                                limitby=limitby).as_dict()
+                                                limitby = limitby
+                                                ).as_dict()
             for l in xrange(0, 6):
                 if l in lx_ids:
                     lx_name = lx_names.get(lx_ids[l])["name"]
@@ -6083,7 +6116,13 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
 
         values = self.parse(value)
 
-        if not values or not any(values.get(key) for key in self.keys):
+        if not values:
+            # No data
+            if requires and not isinstance(requires, IS_EMPTY_OR):
+                return values, current.T("Location data required")
+            return values, None
+        values_get = values.get
+        if not any(values_get(key) for key in self.keys):
             # No data
             if requires and not isinstance(requires, IS_EMPTY_OR):
                 return values, current.T("Location data required")
@@ -6097,7 +6136,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
         msg = self.error_message
 
         # Check for valid Lat/Lon/WKT/Radius (if any)
-        lat = values.get("lat")
+        lat = values_get("lat")
         if lat:
             try:
                 lat = float(lat)
@@ -6106,7 +6145,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
         elif lat == "":
             lat = None
 
-        lon = values.get("lon")
+        lon = values_get("lon")
         if lon:
             try:
                 lon = float(lon)
@@ -6115,7 +6154,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
         elif lon == "":
             lon = None
 
-        wkt = values.get("wkt")
+        wkt = values_get("wkt")
         if wkt:
             try:
                 from shapely.wkt import loads as wkt_loads
@@ -6125,7 +6164,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
         elif wkt == "":
             wkt = None
 
-        radius = values.get("radius")
+        radius = values_get("radius")
         if radius:
             try:
                 radius = float(radius)
@@ -6138,8 +6177,8 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
             error = "\n".join(s3_str(errors[fn]) for fn in errors)
             return (values, error)
 
-        specific = values.get("specific")
-        location_id = values.get("id")
+        specific = values_get("specific")
+        location_id = values_get("id")
 
         if specific and location_id and location_id != specific:
             # Reset from a specific location to an Lx
@@ -6149,9 +6188,9 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
             lat = lon = wkt = radius = None
         else:
             # Read other details
-            parent = values.get("parent")
-            address = values.get("address")
-            postcode = values.get("postcode")
+            parent = values_get("parent")
+            address = values_get("address")
+            postcode = values_get("postcode")
 
         if parent or address or postcode or \
            wkt is not None or \
@@ -6173,7 +6212,8 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
                                                     table.addr_street,
                                                     table.addr_postcode,
                                                     table.parent,
-                                                    limitby=(0, 1)).first()
+                                                    limitby = (0, 1)
+                                                    ).first()
                 if not location:
                     return (values, msg or current.T("Invalid Location!"))
 
@@ -6223,7 +6263,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
 
                     # Permission to update?
                     if not current.auth.s3_has_permission("update", table,
-                                                          record_id=specific):
+                                                          record_id = specific):
                         return (values, current.auth.messages.access_denied)
 
                     # Schedule for onvalidation
@@ -6257,7 +6297,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
                             (table.parent == parent) & \
                             (table.deleted != True)
                     duplicate = current.db(query).select(table.id,
-                                                         limitby=(0, 1)
+                                                         limitby = (0, 1)
                                                          ).first()
                     if duplicate:
                         return (values, current.T("Duplicate Address"))
@@ -6282,7 +6322,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
 
             # Permission to update?
             if not current.auth.s3_has_permission("update", table,
-                                                  record_id=specific):
+                                                  record_id = specific):
                 return (values, current.auth.messages.access_denied)
 
             # Make sure parent/address are properly removed
@@ -6305,7 +6345,8 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
                 query = (table.id == location_id) & \
                         (table.deleted == False)
                 location = current.db(query).select(table.level,
-                                                    limitby=(0, 1)).first()
+                                                    limitby = (0, 1)
+                                                    ).first()
                 if not location:
                     return (values, msg or current.T("Invalid Location!"))
 
@@ -6314,7 +6355,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
                     # Accept all levels above and including the lowest selectable level
                     for i in xrange(5,-1,-1):
                         if "L%s" % i in levels:
-                            accepted_levels = set("L%s" % l for l in xrange(i,-1,-1))
+                            accepted_levels = set("L%s" % l for l in xrange(i, -1, -1))
                             break
                     if level not in accepted_levels:
                         return (values, msg or \
@@ -6364,6 +6405,7 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
         # Convert and validate
         values, error = self.validate(value)
         if values:
+            values_get = values.get
             location_id = values.get("id")
         else:
             location_id = None
@@ -6384,19 +6426,19 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
         table = current.s3db.gis_location
 
         # Read the values
-        lat = values.get("lat")
-        lon = values.get("lon")
-        lat_min = values.get("lat_min") # Values brought in by onvalidation
-        lon_min = values.get("lon_min")
-        lat_max = values.get("lat_max")
-        lon_max = values.get("lon_max")
-        wkt = values.get("wkt")
-        radius = values.get("radius")
-        the_geom = values.get("the_geom")
-        address = values.get("address")
-        postcode = values.get("postcode")
-        parent = values.get("parent")
-        gis_feature_type = values.get("gis_feature_type")
+        lat = values_get("lat")
+        lon = values_get("lon")
+        lat_min = values_get("lat_min") # Values brought in by onvalidation
+        lon_min = values_get("lon_min")
+        lat_max = values_get("lat_max")
+        lon_max = values_get("lon_max")
+        wkt = values_get("wkt")
+        radius = values_get("radius")
+        the_geom = values_get("the_geom")
+        address = values_get("address")
+        postcode = values_get("postcode")
+        parent = values_get("parent")
+        gis_feature_type = values_get("gis_feature_type")
 
         if location_id == 0:
             # Create new location
@@ -6430,14 +6472,14 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
             current.gis.update_location_tree(feature)
 
         else:
-            specific = values.get("specific")
+            specific = values_get("specific")
             # specific is 0 to skip update (unchanged)
             # specific is None for Lx locations
             if specific and specific == location_id:
                 # Update specific location
-                feature = Storage(addr_street=address,
-                                  addr_postcode=postcode,
-                                  parent=parent,
+                feature = Storage(addr_street = address,
+                                  addr_postcode = postcode,
+                                  parent = parent,
                                   )
                 if any(detail is not None for detail in (lat, lon, wkt, radius)):
                     feature.lat = lat
@@ -6938,11 +6980,12 @@ class S3CascadeSelectWidget(FormWidget):
             jquery_ready.append(script)
 
     # -------------------------------------------------------------------------
-    def parse(self, value):
+    def parse(self, value, record_id=None):
         """
             Value parser for the hidden input field of the widget
 
             @param value: the value received from the client, JSON string
+            @param record_id: the record ID (unused, for API compatibility)
 
             @return: a list (if multiple=True) or the value
         """
@@ -7194,11 +7237,12 @@ class S3HierarchyWidget(FormWidget):
         return widget
 
     # -------------------------------------------------------------------------
-    def parse(self, value):
+    def parse(self, value, record_id=None):
         """
             Value parser for the hidden input field of the widget
 
             @param value: the value received from the client, JSON string
+            @param record_id: the record ID (unused, for API compatibility)
 
             @return: a list (if multiple=True) or the value
         """
@@ -7415,7 +7459,7 @@ class S3PersonAutocompleteWidget(FormWidget):
     def __call__(self, field, value, **attributes):
 
         default = {"_type": "text",
-                   "value": (value is not None and str(value)) or "",
+                   "value": str(value) if value is not None else "",
                    }
         attr = StringWidget._attributes(field, default, **attributes)
 
@@ -7438,7 +7482,7 @@ class S3PersonAutocompleteWidget(FormWidget):
             text = s3_unicode(field.represent(value))
             if "<" in text:
                 text = s3_strip_markup(text)
-            represent = text.encode("utf-8")
+            represent = s3_str(text)
         else:
             represent = ""
 
@@ -7476,13 +7520,16 @@ class S3PersonAutocompleteWidget(FormWidget):
         script = '''%s%s)''' % (script, options)
         current.response.s3.jquery_ready.append(script)
 
-        return TAG[""](INPUT(_id=dummy_input,
-                             _class="string",
-                             _value=represent),
-                       DIV(_id="%s_throbber" % dummy_input,
-                           _class="throbber input_throbber hide"),
-                       INPUT(hideerror=self.hideerror, **attr),
-                       requires = field.requires
+        return TAG[""](INPUT(_id = dummy_input,
+                             # Required to retain label on error:
+                             _name = dummy_input,
+                             _class = "string",
+                             _value = represent,
+                             ),
+                       DIV(_id = "%s_throbber" % dummy_input,
+                           _class = "throbber input_throbber hide",
+                           ),
+                       INPUT(hideerror = self.hideerror, **attr),
                        )
 
 # =============================================================================
@@ -7510,7 +7557,7 @@ class S3PentityAutocompleteWidget(FormWidget):
     def __call__(self, field, value, **attributes):
 
         default = {"_type": "text",
-                   "value": (value is not None and str(value)) or "",
+                   "value": str(value) if value is not None else "",
                    }
         attr = StringWidget._attributes(field, default, **attributes)
 
@@ -7533,7 +7580,7 @@ class S3PentityAutocompleteWidget(FormWidget):
             text = s3_unicode(field.represent(value))
             if "<" in text:
                 text = s3_strip_markup(text)
-            represent = text.encode("utf-8")
+            represent = s3_str(text)
         else:
             represent = ""
 
@@ -7588,13 +7635,16 @@ class S3PentityAutocompleteWidget(FormWidget):
 
         script = '''%s%s)''' % (script, options)
         s3.jquery_ready.append(script)
-        return TAG[""](INPUT(_id=dummy_input,
-                             _class="string",
-                             _value=represent),
-                       DIV(_id="%s_throbber" % dummy_input,
-                           _class="throbber input_throbber hide"),
-                       INPUT(hideerror=self.hideerror, **attr),
-                       requires = field.requires
+        return TAG[""](INPUT(_id = dummy_input,
+                             # Required to retain label on error:
+                             _name = dummy_input,
+                             _class = "string",
+                             _value = represent,
+                             ),
+                       DIV(_id = "%s_throbber" % dummy_input,
+                           _class = "throbber input_throbber hide",
+                           ),
+                       INPUT(hideerror = self.hideerror, **attr),
                        )
 
 # =============================================================================
@@ -7646,7 +7696,7 @@ class S3SiteAutocompleteWidget(FormWidget):
     def __call__(self, field, value, **attributes):
 
         default = {"_type": "text",
-                   "value": (value is not None and str(value)) or "",
+                   "value": str(value) if value is not None else "",
                    }
         attr = StringWidget._attributes(field, default, **attributes)
 
@@ -7674,11 +7724,9 @@ class S3SiteAutocompleteWidget(FormWidget):
                 text = s3_unicode(represent(value))
                 if "<" in text:
                     text = s3_strip_markup(text)
-            represent = text.encode("utf-8")
+            represent = s3_str(text)
         else:
             represent = ""
-
-
 
         s3 = current.response.s3
         site_types = current.auth.org_site_types
@@ -7707,13 +7755,17 @@ class S3SiteAutocompleteWidget(FormWidget):
         script = "%s)" % script
 
         s3.jquery_ready.append(script)
-        return TAG[""](INPUT(_id=dummy_input,
-                             _class="string",
-                             _value=represent),
-                       DIV(_id="%s_throbber" % dummy_input,
-                           _class="throbber input_throbber hide"),
+
+        return TAG[""](INPUT(_id = dummy_input,
+                             # Required to retain label on error:
+                             _name = dummy_input,
+                             _class = "string",
+                             _value = represent,
+                             ),
+                       DIV(_id = "%s_throbber" % dummy_input,
+                           _class = "throbber input_throbber hide",
+                           ),
                        INPUT(**attr),
-                       requires = field.requires
                        )
 
 # =============================================================================
@@ -7858,10 +7910,15 @@ class S3TimeIntervalWidget(FormWidget):
                    ("seconds", 1))
 
     # -------------------------------------------------------------------------
-    @staticmethod
-    def widget(field, value, **attributes):
+    @classmethod
+    def widget(cls, field, value, **attributes):
+        """
+            Widget builder
 
-        multipliers = S3TimeIntervalWidget.multipliers
+            @param field: the Field
+            @param value: the current value
+            @param attributes: DOM attributes for the widget
+        """
 
         if value is None:
             value = 0
@@ -7871,53 +7928,104 @@ class S3TimeIntervalWidget(FormWidget):
             except ValueError:
                 value = 0
 
-        if value == 0:
-            multiplier = 1
-        else:
-            for m in multipliers:
-                multiplier = m[1]
-                if int(value) % multiplier == 0:
-                    break
+        # Value input
+        multiplier = cls.get_multiplier(value)
+        inp = IntegerWidget.widget(field, value // multiplier[1],
+                                   requires = cls.validate(field),
+                                   )
 
+        # Multiplier selector
+        multipliers = S3TimeIntervalWidget.multipliers
         options = []
-        for i in xrange(1, len(multipliers) + 1):
+        for i in range(1, len(multipliers) + 1):
             title, opt = multipliers[-i]
-            if opt == multiplier:
+            if opt == multiplier[1]:
                 option = OPTION(title, _value=opt, _selected="selected")
             else:
                 option = OPTION(title, _value=opt)
             options.append(option)
 
-        val = value / multiplier
-        inp = DIV(INPUT(value = val,
-                        requires = field.requires,
-                        _id = ("%s" % field).replace(".", "_"),
-                        _name = field.name),
-                  SELECT(options,
-                         _name=("%s_multiplier" % field).replace(".", "_")))
-        return inp
+        # Widget
+        return DIV(inp,
+                   SELECT(options,
+                          _name = ("%s_multiplier" % field).replace(".", "_"),
+                          ),
+                   )
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def represent(value):
+    def validate(field):
+        """
+            Return an internal validator (converter) for the numeric input
 
-        multipliers = S3TimeIntervalWidget.multipliers
+            @param field: the Field
+
+            @returns: a validator function
+        """
+
+        def requires(value, record_id=None):
+
+            if value is None or value == "":
+                return value, None
+
+            try:
+                val = int(value)
+            except ValueError:
+                return (value, T("Enter an integer"))
+
+            post_vars = current.request.post_vars
+            try:
+                mul = int(post_vars[("%s_multiplier" % field).replace(".", "_")])
+            except ValueError:
+                return (value, T("Invalid time unit"))
+
+            return val * mul, None
+
+        return requires
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def represent(cls, value):
+        """
+            Represent the field value in a convenient unit of time
+
+            @param value: the field value (seconds)
+
+            @returns: string representation of the field value
+        """
 
         try:
             val = int(value)
-        except ValueError:
+        except (ValueError, TypeError):
             val = 0
 
-        if val == 0:
-            multiplier = multipliers[-1]
-        else:
+        multiplier = cls.get_multiplier(val)
+
+        return "%s %s" % (val // multiplier[1],
+                          current.T(multiplier[0]),
+                          )
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def get_multiplier(cls, value):
+        """
+            Get a convenient multiplier (=unit of time) for a value in seconds
+
+            @param value: the value in seconds
+
+            @returns: a tuple (multiplier, multiplier-name)
+        """
+
+        multipliers = cls.multipliers
+
+        multiplier = multipliers[-1] # Seconds
+        if value >= 60:
             for m in multipliers:
-                if val % m[1] == 0:
+                if value % m[1] == 0:
                     multiplier = m
                     break
 
-        val = val / multiplier[1]
-        return "%s %s" % (val, current.T(multiplier[0]))
+        return multiplier
 
 # =============================================================================
 class S3UploadWidget(UploadWidget):
@@ -8122,7 +8230,7 @@ class CheckboxesWidgetS3(OptionsWidget):
 
         totals = len(options)
         mods = totals % cols
-        rows = totals / cols
+        rows = totals // cols
         if mods:
             rows += 1
 
@@ -8248,10 +8356,12 @@ def s3_richtext_widget(field, value):
 
     # Load the scripts
     sappend = s3.scripts.append
-    ckeditor = URL(c="static", f="ckeditor", args="ckeditor.js")
+    ckeditor = URL(c="static", f="ckeditor",
+                   args = "ckeditor.js")
     sappend(ckeditor)
-    adapter = URL(c="static", f="ckeditor", args=["adapters",
-                                                  "jquery.js"])
+    adapter = URL(c="static", f="ckeditor",
+                  args = ["adapters",
+                          "jquery.js"])
     sappend(adapter)
 
     table = current.s3db.table("doc_ckeditor")
@@ -8271,11 +8381,12 @@ def s3_richtext_widget(field, value):
     js = '''$('#%s').ckeditor(ck_config)''' % widget_id
     s3.jquery_ready.append(js)
 
-    return TEXTAREA(_name=field.name,
-                    _id=widget_id,
-                    _class="richtext %s" % (field.type),
-                    value=value,
-                    requires=field.requires)
+    return TEXTAREA(_name = field.name,
+                    _id = widget_id,
+                    _class = "richtext %s" % (field.type),
+                    value = value,
+                    requires = field.requires,
+                    )
 
 # =============================================================================
 def search_ac(r, **attr):
@@ -8855,6 +8966,7 @@ class ICON(I):
             "facility": "fa-home",
             "file": "fa-file",
             "file-alt": "fa-file-o",
+            "file-excel": "fa-excel-o",
             "file-text": "fa-file-text",
             "file-text-alt": "fa-file-text-o",
             "flag": "fa-flag",

@@ -2,7 +2,7 @@
 
 """ Sahana Eden Menu Structure and Layout
 
-    @copyright: 2011-2019 (c) Sahana Software Foundation
+    @copyright: 2011-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -504,6 +504,7 @@ class S3OptionsMenu(object):
                         M("Tasks", f="monitor_task"),
                         M("Logs", f="monitor_run"),
                     ),
+                    M("Scheduler", c="admin", f="task"),
                     M("Synchronization", c="sync", f="index")(
                         M("Settings", f="config", args=[1], m="update"),
                         M("Repositories", f="repository"),
@@ -1400,6 +1401,9 @@ class S3OptionsMenu(object):
                         M("Search Shipped Items", f="track_item"),
                         M("Timeline", args="timeline"),
                     ),
+                    M("Distributions", c="supply", f="distribution")(
+                        M("Create", m="create"),
+                    ),
                     M("Items", c="supply", f="item", m="summary")(
                         M("Create", m="create"),
                         M("Import", f="catalog_item", m="import", p="create"),
@@ -1771,6 +1775,9 @@ class S3OptionsMenu(object):
         """ PROC / Procurement """
 
         return M(c="proc")(
+                    M("Purchase Orders", f="order")(
+                        M("Create", m="create"),
+                    ),
                     M("Procurement Plans", f="plan")(
                         M("Create", m="create"),
                     ),
@@ -1957,13 +1964,18 @@ class S3OptionsMenu(object):
         else:
             create_menu = M("Create", m="create")
 
+        if settings.get_req_summary():
+            method = "summary"
+        else:
+            method = None
+
         recurring = lambda i: settings.get_req_recurring()
         use_commit = lambda i: settings.get_req_use_commit()
         req_items = lambda i: "Stock" in types
         req_skills = lambda i: "People" in types
 
         return M(c="req")(
-                    M("Requests", f="req")(
+                    M("Requests", f="req", m=method)(
                         create_menu,
                         M("List Recurring Requests", f="req_template", check=recurring),
                         M("Map", m="map"),

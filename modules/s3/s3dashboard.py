@@ -2,7 +2,7 @@
 
 """ Dashboards
 
-    @copyright: 2016-2019 (c) Sahana Software Foundation
+    @copyright: 2016-2020 (c) Sahana Software Foundation
     @license: MIT
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
@@ -37,7 +37,7 @@ __all__ = ("S3Dashboard",
            )
 
 import json
-import uuid
+from uuid import uuid4
 
 from gluon import *
 
@@ -352,7 +352,7 @@ class S3DashboardConfig(object):
                 configs.append(widget)
 
         # Generate a new version key
-        version = uuid.uuid4().get_hex()
+        version = uuid4().get_hex()
 
         config_id = self.config_id
         if not config_id:

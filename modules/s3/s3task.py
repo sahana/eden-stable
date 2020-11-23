@@ -16,7 +16,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: 2011-2019 (c) Sahana Software Foundation
+    @copyright: 2011-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -46,12 +46,11 @@ __all__ = ("S3Task",)
 import datetime
 import json
 
-from gluon import current, HTTP
+from gluon import current, IS_EMPTY_OR, IS_INT_IN_RANGE
 from gluon.storage import Storage
 
-from s3compat import INTEGER_TYPES, basestring
 from .s3datetime import S3DateTime
-from .s3validators import IS_TIME_INTERVAL_WIDGET, IS_UTC_DATETIME
+from .s3validators import IS_UTC_DATETIME
 from .s3widgets import S3CalendarWidget, S3TimeIntervalWidget
 
 # -----------------------------------------------------------------------------
@@ -86,6 +85,7 @@ class S3Task(object):
                                  args = None,
                                  vars = None,
                                  period = 3600, # seconds, so 1 hour
+                                 status_writable = False,
                                  ):
         """
             Configure the task table for interactive CRUD,
@@ -95,12 +95,9 @@ class S3Task(object):
             @param function: the function name (won't hide if omitted)
             @param args: the function position arguments
             @param vars: the function named arguments
+            @param period: the default period for tasks
+            @param status_writable: make status and next run time editable
         """
-
-        if args is None:
-            args = []
-        if vars is None:
-            vars = {}
 
         T = current.T
         NONE = current.messages["NONE"]
@@ -109,24 +106,17 @@ class S3Task(object):
         tablename = self.TASK_TABLENAME
         table = current.db[tablename]
 
-        table.uuid.readable = table.uuid.writable = False
-
-        table.prevent_drift.readable = table.prevent_drift.writable = False
-
-        table.sync_output.readable = table.sync_output.writable = False
-
-        table.times_failed.readable = False
-
         # Configure start/stop time fields
         for fn in ("start_time", "stop_time"):
             field = table[fn]
             field.represent = lambda dt: \
                             S3DateTime.datetime_represent(dt, utc=True)
-            field.requires = IS_UTC_DATETIME()
             set_min = set_max = None
             if fn == "start_time":
+                field.requires = IS_UTC_DATETIME()
                 set_min = "#scheduler_task_stop_time"
             elif fn == "stop_time":
+                field.requires = IS_EMPTY_OR(IS_UTC_DATETIME())
                 set_max = "#scheduler_task_start_time"
             field.widget = S3CalendarWidget(past = 0,
                                             set_min = set_min,
@@ -134,25 +124,35 @@ class S3Task(object):
                                             timepicker = True,
                                             )
 
-        if not task:
-            import uuid
-            task = str(uuid.uuid4())
+        # Task name (default use UUID)
+        if task is None:
+            from uuid import uuid4
+            task = str(uuid4())
         field = table.task_name
         field.default = task
-        field.readable = False
-        field.writable = False
+        field.readable = field.writable = False
 
+        # Function (default+hide if specified as parameter)
         if function:
             field = table.function_name
             field.default = function
-            field.readable = False
-            field.writable = False
+            field.readable = field.writable = False
 
-        field = table.args
-        field.default = json.dumps(args)
-        field.readable = False
-        field.writable = False
+        # Args and vars
+        if isinstance(args, list):
+            field = table.args
+            field.default = json.dumps(args)
+            field.readable = field.writable = False
+        else:
+            field.default = "[]"
+        if isinstance(vars, dict):
+            field = table.vars
+            field.default = json.dumps(vars)
+            field.readable = field.writable = False
+        else:
+            field.default = {}
 
+        # Fields which are always editable
         field = table.repeats
         field.label = T("Repeat")
         field.comment = T("times (0 = unlimited)")
@@ -166,19 +166,15 @@ class S3Task(object):
         field.label = T("Run every")
         field.default = period
         field.widget = S3TimeIntervalWidget.widget
-        field.requires = IS_TIME_INTERVAL_WIDGET(table.period)
+        field.requires = IS_INT_IN_RANGE(0, None)
         field.represent = S3TimeIntervalWidget.represent
-        field.comment = T("seconds")
+        field.comment = None
 
         table.timeout.default = 600
         table.timeout.represent = lambda opt: \
-            opt and "%s %s" % (opt, T("seconds")) or \
-            opt == 0 and UNLIMITED or \
-            NONE
-
-        field = table.vars
-        field.default = json.dumps(vars)
-        field.readable = field.writable = False
+                                    opt and "%s %s" % (opt, T("seconds")) or \
+                                    opt == 0 and UNLIMITED or \
+                                    NONE
 
         # Always use "default" controller (web2py uses current controller),
         # otherwise the anonymous worker does not pass the controller
@@ -187,31 +183,47 @@ class S3Task(object):
         field = table.application_name
         field.default = "%s/default" % current.request.application
         field.readable = field.writable = False
-        table.group_name.readable = table.group_name.writable = False
-        table.status.readable = table.status.writable = False
-        table.next_run_time.readable = table.next_run_time.writable = False
-        table.times_run.readable = table.times_run.writable = False
-        table.assigned_worker_name.readable = \
-            table.assigned_worker_name.writable = False
+
+        # Hidden fields
+        hidden = ("uuid",
+                  "broadcast",
+                  "group_name",
+                  "times_run",
+                  "assigned_worker_name",
+                  "sync_output",
+                  "times_failed",
+                  "cronline",
+                  )
+        for fn in hidden:
+            table[fn].readable = table[fn].writable = False
+
+        # Optionally editable fields
+        fields = ("next_run_time", "status", "prevent_drift")
+        for fn in fields:
+            table[fn].readable = table[fn].writable = status_writable
+
+        list_fields = ["id",
+                       "enabled",
+                       "start_time",
+                       "repeats",
+                       "period",
+                       (T("Last run"), "last_run_time"),
+                       (T("Last status"), "status"),
+                       (T("Next run"), "next_run_time"),
+                       "stop_time"
+                       ]
+        if not function:
+            list_fields[1:1] = ["task_name", "function_name"]
 
         current.s3db.configure(tablename,
-                               list_fields = ["id",
-                                              "enabled",
-                                              "start_time",
-                                              "repeats",
-                                              "period",
-                                              (T("Last run"), "last_run_time"),
-                                              (T("Last status"), "status"),
-                                              (T("Next run"), "next_run_time"),
-                                              "stop_time"
-                                              ],
+                               list_fields = list_fields,
                                )
 
         response = current.response
         if response:
             response.s3.crud_strings[tablename] = Storage(
                 label_create = T("Create Job"),
-                title_display = T("Scheduled Jobs"),
+                title_display = T("Job Details"),
                 title_list = T("Job Schedule"),
                 title_update = T("Edit Job"),
                 label_list_button = T("List Jobs"),
@@ -220,8 +232,6 @@ class S3Task(object):
                 msg_record_deleted = T("Job deleted"),
                 msg_list_empty = T("No jobs configured yet"),
                 msg_no_match = T("No jobs configured"))
-
-        return
 
     # -------------------------------------------------------------------------
     # API Function run within the main flow of the application
@@ -244,58 +254,47 @@ class S3Task(object):
         if vars is None:
             vars = {}
 
-        # Check that task is defined
+        # Check that task is defined (and callable)
         tasks = current.response.s3.tasks
-        if not tasks:
-            return False
-        if task not in tasks:
+        if not tasks or not callable(tasks.get(task)):
             return False
 
-        # Check that worker is alive
+        # Check that args/vars are JSON-serializable
+        try:
+            json.dumps(args)
+        except (ValueError, TypeError):
+            msg = "S3Task.run_async args not JSON-serializable: %s" % args
+            current.log.error(msg)
+            raise
+        try:
+            json.dumps(vars)
+        except (ValueError, TypeError):
+            msg = "S3Task.run_async vars not JSON-serializable: %s" % vars
+            current.log.error(msg)
+            raise
+
+        # Run synchronously if scheduler not running
         if not self._is_alive():
-            # Run the task synchronously
-            _args = []
-            for arg in args:
-                if isinstance(arg, INTEGER_TYPES + (float,)):
-                    _args.append(str(arg))
-                elif isinstance(arg, basestring):
-                    _args.append("%s" % str(json.dumps(arg)))
-                else:
-                    error = "Unhandled arg type: %s" % arg
-                    current.log.error(error)
-                    raise HTTP(501, error)
-            args = ",".join(_args)
-            _vars = ",".join(["%s=%s" % (str(var),
-                                         str(vars[var])) for var in vars])
-            if args:
-                statement = "tasks['%s'](%s,%s)" % (task, args, _vars)
-            else:
-                statement = "tasks['%s'](%s)" % (task, _vars)
-            # Handle JSON
-            false = False
-            null = None
-            true = True
-            exec(statement)
-            return None
+            tasks[task](*args, **vars)
+            return None # No task ID in this case
 
-        auth = current.auth
-        if auth.is_logged_in():
+        # Queue the task (async)
+        try:
             # Add the current user to the vars
-            vars["user_id"] = auth.user.id
+            vars["user_id"] = current.auth.user.id
+        except AttributeError:
+            pass
+        queued = self.scheduler.queue_task(task,
+                                           pargs = args,
+                                           pvars = vars,
+                                           application_name = "%s/default" % \
+                                                              current.request.application,
+                                           function_name = task,
+                                           timeout = timeout,
+                                           )
 
-        # Run the task asynchronously
-        # @ToDo: Switch to API: self.scheduler.queue_task()
-        task_id = current.db.scheduler_task.insert(application_name = "%s/default" % \
-                                                    current.request.application,
-                                                   task_name = task,
-                                                   function_name = task,
-                                                   args = json.dumps(args),
-                                                   vars = json.dumps(vars),
-                                                   timeout = timeout,
-                                                   )
-
-        # Return task_id so that status can be polled
-        return task_id
+        # Return task ID so that status can be polled
+        return queued.id
 
     # -------------------------------------------------------------------------
     def schedule_task(self,
@@ -452,7 +451,7 @@ class S3Task(object):
         table = db.scheduler_worker
 
         now = datetime.datetime.now()
-        offset = datetime.timedelta(minutes=1)
+        offset = datetime.timedelta(minutes = 1)
 
         query = (table.last_heartbeat > (now - offset))
         cache = current.response.s3.cache

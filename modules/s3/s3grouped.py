@@ -2,7 +2,7 @@
 
 """ S3 Grouped Items Report Method
 
-    @copyright: 2015-2019 (c) Sahana Software Foundation
+    @copyright: 2015-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -151,15 +151,10 @@ class S3GroupedItemsReport(S3Method):
         labels = report_config.get("labels")
         represent = report_config.get("groupby_represent")
 
-        if representation in ("pdf", "xls"):
-            as_dict = True
-        else:
-            as_dict = False
-
         data = gi.json(fields = display_cols,
                        labels = labels,
                        represent = represent,
-                       as_dict = as_dict,
+                       as_dict = representation in ("pdf", "xls"),
                        )
 
         group_headers = report_config.get("group_headers", False)
@@ -187,12 +182,12 @@ class S3GroupedItemsReport(S3Method):
 
                 # Instantiate form
                 filter_form = S3FilterForm(filter_widgets,
-                                           formstyle=filter_formstyle,
-                                           submit=filter_submit,
-                                           clear=filter_clear,
-                                           ajax=True,
-                                           _class="filter-form",
-                                           _id="%s-filter-form" % widget_id,
+                                           formstyle = filter_formstyle,
+                                           submit = filter_submit,
+                                           clear = filter_clear,
+                                           ajax = True,
+                                           _class = "filter-form",
+                                           _id = "%s-filter-form" % widget_id,
                                            )
 
                 # Render against unfiltered resource
@@ -500,7 +495,7 @@ class S3GroupedItemsReport(S3Method):
                                                ),
                                   },
                           ),
-                      _class="gi-export-formats",
+                      _class = "gi-export-formats",
                       )
 
         return formats
@@ -639,7 +634,7 @@ class S3GroupedItemsTable(object):
 
         pdf_header = self.pdf_header
         if callable(pdf_header):
-            pdf_header = lambda r, title=title: self.pdf_header(r, title=title)
+            pdf_header = lambda r, t=title: self.pdf_header(r, title=t)
 
         pdf_footer = self.pdf_footer
 
@@ -903,7 +898,7 @@ class S3GroupedItemsTable(object):
         if not totals:
             return
 
-        footer_row = TR(_class="gi-column-totals")
+        footer_row = TR(_class = "gi-column-totals")
         if columns:
             label = None
             span = 0
@@ -973,7 +968,7 @@ class S3GroupedItemsTable(object):
                     )
 
         tbody.append(TR(header,
-                        _class="gi-group-header gi-level-%s" % level,
+                        _class = "gi-group-header gi-level-%s" % level,
                         ))
 
     # -------------------------------------------------------------------------
@@ -1302,11 +1297,12 @@ class S3GroupedItems(object):
 
     # -------------------------------------------------------------------------
     def json(self,
-             fields=None,
-             labels=None,
-             represent=None,
-             as_dict=False,
-             master=True):
+             fields = None,
+             labels = None,
+             represent = None,
+             as_dict = False,
+             master = True
+             ):
         """
             Serialize this group as JSON
 
@@ -1450,9 +1446,8 @@ class S3GroupedItems(object):
         aggregates = self._aggregates
         totals = {}
         for k, a in aggregates.items():
-            method = k[0]
             # @todo: call represent for totals
-            totals[colname] = s3_str(a.result)
+            totals[k[1]] = s3_str(a.result)
         output["t"] = totals
 
         # Convert to JSON unless requested otherwise
@@ -1480,7 +1475,8 @@ class S3GroupAggregate(object):
         self.result = self.__compute(method, values)
 
     # -------------------------------------------------------------------------
-    def __compute(self, method, values):
+    @staticmethod
+    def __compute(method, values):
         """
             Compute the aggregated value
 

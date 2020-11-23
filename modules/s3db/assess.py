@@ -2,7 +2,7 @@
 
 """ Sahana Eden Assessments Model
 
-    @copyright: 2012-2019 (c) Sahana Software Foundation
+    @copyright: 2012-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -362,7 +362,7 @@ class S3AssessBuildingModel(S3Model):
                                 represent = lambda v: v or NONE,
                                 label=T("Name")),
                           Field("phone",
-                                requires=IS_EMPTY_OR(s3_phone_requires),
+                                requires=IS_EMPTY_OR(IS_PHONE_NUMBER_MULTI()),
                                 represent = lambda v: v or NONE,
                                 label=T("Phone Number")),
                           Field("contact_other",

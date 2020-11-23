@@ -2,7 +2,7 @@
 
 """ S3 Navigation Module
 
-    @copyright: 2011-2019 (c) Sahana Software Foundation
+    @copyright: 2011-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -1498,15 +1498,17 @@ class S3ComponentTabs(object):
 
             # Render tab
             rheader_tabs.append(SPAN(A(tab.title,
-                                       _href=_href,
-                                       _id=_id,
+                                       _href = _href,
+                                       _id = _id,
                                        ),
-                                     _class=_class,
+                                     _class = _class,
                                      ))
 
         # Render tab row
         if rheader_tabs:
-            rheader_tabs = DIV(rheader_tabs, _class="tabs")
+            rheader_tabs = DIV(rheader_tabs,
+                               _class = "tabs",
+                               )
         else:
             rheader_tabs = ""
         return rheader_tabs

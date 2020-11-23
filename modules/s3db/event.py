@@ -2,7 +2,7 @@
 
 """ Sahana Eden Event Model
 
-    @copyright: 2009-2019 (c) Sahana Software Foundation
+    @copyright: 2009-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -698,7 +698,7 @@ class S3EventModel(S3Model):
     @staticmethod
     def event_add_tag(r, **attr):
         """
-            Add a Tag to an Event
+            Add a CMS Tag to an Event
 
             S3Method for interactive requests
             - designed to be called as an afterTagAdded callback to tag-it.js
@@ -758,7 +758,7 @@ class S3EventModel(S3Model):
     @staticmethod
     def event_remove_tag(r, **attr):
         """
-            Remove a Tag from an Event
+            Remove a CMS Tag from an Event
 
             S3Method for interactive requests
             - designed to be called as an afterTagRemoved callback to tag-it.js
@@ -1880,7 +1880,7 @@ class S3IncidentModel(S3Model):
     @staticmethod
     def incident_add_tag(r, **attr):
         """
-            Add a Tag to an Incident
+            Add a CMS Tag to an Incident
 
             S3Method for interactive requests
             - designed to be called as an afterTagAdded callback to tag-it.js
@@ -1939,7 +1939,7 @@ class S3IncidentModel(S3Model):
     @staticmethod
     def incident_remove_tag(r, **attr):
         """
-            Remove a Tag from an Incident
+            Remove a CMS Tag from an Incident
 
             S3Method for interactive requests
             - designed to be called as an afterTagRemoved callback to tag-it.js
@@ -2769,6 +2769,12 @@ class S3IncidentTypeModel(S3Model):
                        hierarchy = hierarchy,
                        )
 
+        self.add_components(tablename,
+                            event_incident_type_tag = {"alias": "tag",
+                                                       "joinby": "incident_type_id",
+                                                       },
+                            )
+
         # Pass names back to global scope (s3.*)
         return {"event_incident_type_id": incident_type_id,
                 }
@@ -3471,7 +3477,7 @@ class S3EventForumModel(S3Model):
 
         #current.response.s3.crud_strings[tablename] = Storage(
         #    label_create = T("Share Incident"), # or Event
-        #    title_display = T(" Shared Incident Details"),
+        #    title_display = T("Shared Incident Details"),
         #    title_list = T("Shared Incidents"),
         #    title_update = T("Edit Shared Incident"),
         #    label_list_button = T("List Shared Incidents"),

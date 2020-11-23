@@ -7,7 +7,7 @@
     @requires: U{B{I{gluon}} <http://web2py.com>}
     @requires: U{B{I{lxml}} <http://codespeak.net/lxml>}
 
-    @copyright: 2009-2019 (c) Sahana Software Foundation
+    @copyright: 2009-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -352,25 +352,28 @@ class S3CRUD(S3Method):
             if "id" in request.post_vars:
                 post_vars = request.post_vars
                 original = str(post_vars.id)
-                formkey = session.get("_formkey[%s/None]" % tablename)
-                formname = "%s/%s" % (tablename, original)
-                session["_formkey[%s]" % formname] = formkey
-                if "deleted" in table:
-                    table.deleted.writable = True
-                    post_vars["deleted"] = False
-                if "created_on" in table:
-                    table.created_on.writable = True
-                    post_vars["created_on"] = request.utcnow
-                if "created_by" in table:
-                    table.created_by.writable = True
-                    if current.auth.user:
-                        post_vars["created_by"] = current.auth.user.id
-                    else:
-                        post_vars["created_by"] = None
-                post_vars["_undelete"] = True
-                post_vars["_formname"] = formname
-                post_vars["id"] = original
-                request.vars.update(**post_vars)
+                if original:
+                    formkey = session.get("_formkey[%s/None]" % tablename)
+                    formname = "%s/%s" % (tablename, original)
+                    session["_formkey[%s]" % formname] = formkey
+                    if "deleted" in table:
+                        table.deleted.writable = True
+                        post_vars["deleted"] = False
+                    if "created_on" in table:
+                        table.created_on.writable = True
+                        post_vars["created_on"] = request.utcnow
+                    if "created_by" in table:
+                        table.created_by.writable = True
+                        if current.auth.user:
+                            post_vars["created_by"] = current.auth.user.id
+                        else:
+                            post_vars["created_by"] = None
+                    post_vars["_undelete"] = True
+                    post_vars["_formname"] = formname
+                    post_vars["id"] = original
+                    request.vars.update(**post_vars)
+                else:
+                    original = None
             else:
                 original = None
 
@@ -1066,10 +1069,12 @@ class S3CRUD(S3Method):
             if isinstance(output, dict):
                 # Provide a confirmation form and a record list
                 form = FORM(TABLE(TR(TD(self.settings.confirm_delete,
-                                        _style="color:red"),
-                                     TD(INPUT(_type="submit",
-                                              _value=current.T("Delete"),
-                                              _style="margin-left:10px")))))
+                                        _style = "color:red",
+                                        ),
+                                     TD(INPUT(_type = "submit",
+                                              _value = current.T("Delete"),
+                                              _style = "margin-left:10px",
+                                              )))))
                 output["form"] = form
                 current.response.view = self._view(r, "delete.html")
             else:
@@ -1112,7 +1117,8 @@ class S3CRUD(S3Method):
                         # Need to lookup the hierarchy node key
                         query = (resource._id == record_id)
                         row = current.db(query).select(pkey,
-                                                       limitby=(0, 1)).first()
+                                                       limitby = (0, 1)
+                                                       ).first()
                         if row:
                             node_ids = [row[pkey]]
                     numrows = h.delete(node_ids) if node_ids else 0
@@ -1554,7 +1560,7 @@ class S3CRUD(S3Method):
             dtargs["dt_permalink"] = r.url()
             datatable = dt.html(totalrows,
                                 displayrows,
-                                id=list_id,
+                                id = list_id,
                                 **dtargs)
 
             # View + data
@@ -1980,7 +1986,7 @@ class S3CRUD(S3Method):
         """
 
         if not self._permitted("review"):
-            r.unauthorized()
+            r.unauthorised()
 
         T = current.T
 
@@ -2483,15 +2489,17 @@ class S3CRUD(S3Method):
             authorised = self._permitted(method="create")
             if authorised:
                 if ADD_BTN in custom_crud_buttons:
-                    btn = crud_button(custom=custom_crud_buttons[ADD_BTN])
+                    btn = crud_button(custom = custom_crud_buttons[ADD_BTN])
                 else:
                     label = crud_string(tablename, "label_create")
-                    _href = url(method="create",
-                                representation=representation)
-                    btn = crud_button(label=label,
-                                      icon="add",
-                                      _href=_href,
-                                      _id="add-btn")
+                    _href = url(method = "create",
+                                representation = representation
+                                )
+                    btn = crud_button(label = label,
+                                      icon = "add",
+                                      _href = _href,
+                                      _id = "add-btn"
+                                      )
                 output[ADD_BTN] = btn
 
         # List button
@@ -2499,17 +2507,19 @@ class S3CRUD(S3Method):
             LIST_BTN = "list_btn"
             if not r.component or r.component.multiple:
                 if LIST_BTN in custom_crud_buttons:
-                    btn = crud_button(custom=custom_crud_buttons[LIST_BTN])
+                    btn = crud_button(custom = custom_crud_buttons[LIST_BTN])
                 else:
                     label = crud_string(tablename, "label_list_button")
-                    _href = url(method="",
-                                id=r.id if r.component else 0,
-                                vars=remove_filters(r.get_vars),
-                                representation=representation)
-                    btn = crud_button(label=label,
-                                      icon="list",
-                                      _href=_href,
-                                      _id="list-btn")
+                    _href = url(method = "",
+                                id = r.id if r.component else 0,
+                                vars = remove_filters(r.get_vars),
+                                representation = representation
+                                )
+                    btn = crud_button(label = label,
+                                      icon = "list",
+                                      _href = _href,
+                                      _id = "list-btn"
+                                      )
                 output[LIST_BTN] = btn
 
         # Summary button
@@ -2520,14 +2530,15 @@ class S3CRUD(S3Method):
                     btn = crud_button(custom=custom_crud_buttons[SUMMARY_BTN])
                 else:
                     label = crud_string(tablename, "label_list_button")
-                    _href = url(method="summary",
-                                id=0,
-                                vars=remove_filters(r.get_vars),
-                                representation=representation)
-                    btn = crud_button(label=label,
-                                      icon="list",
-                                      _href=_href,
-                                      _id="summary-btn")
+                    _href = url(method = "summary",
+                                id = 0,
+                                vars = remove_filters(r.get_vars),
+                                representation = representation
+                                )
+                    btn = crud_button(label = label,
+                                      icon = "list",
+                                      _href = _href,
+                                      _id = "summary-btn")
                 output[SUMMARY_BTN] = btn
 
         if not record_id:
@@ -2539,15 +2550,17 @@ class S3CRUD(S3Method):
             authorised = self._permitted(method="update")
             if authorised:
                 if EDIT_BTN in custom_crud_buttons:
-                    btn = crud_button(custom=custom_crud_buttons[EDIT_BTN])
+                    btn = crud_button(custom = custom_crud_buttons[EDIT_BTN])
                 else:
                     label = current.messages.UPDATE
-                    _href = url(method="update",
-                                representation=representation)
-                    btn = crud_button(label=label,
-                                      icon="edit",
-                                      _href=_href,
-                                      _id="edit-btn")
+                    _href = url(method = "update",
+                                representation = representation
+                                )
+                    btn = crud_button(label = label,
+                                      icon = "edit",
+                                      _href = _href,
+                                      _id = "edit-btn"
+                                      )
                 output[EDIT_BTN] = btn
 
         # Delete button
@@ -2556,16 +2569,18 @@ class S3CRUD(S3Method):
             authorised = self._permitted(method="delete")
             if authorised:
                 if DELETE_BTN in custom_crud_buttons:
-                    btn = crud_button(custom=custom_crud_buttons[DELETE_BTN])
+                    btn = crud_button(custom = custom_crud_buttons[DELETE_BTN])
                 else:
                     label = crud_string(tablename, "label_delete_button")
-                    _href = url(method="delete",
-                                representation=representation)
-                    btn = crud_button(label=label,
-                                      icon="delete",
-                                      _href=_href,
-                                      _id="delete-btn",
-                                      _class="delete-btn")
+                    _href = url(method = "delete",
+                                representation = representation
+                                )
+                    btn = crud_button(label = label,
+                                      icon = "delete",
+                                      _href = _href,
+                                      _id = "delete-btn",
+                                      _class = "delete-btn"
+                                      )
                 output[DELETE_BTN] = btn
 
         return output

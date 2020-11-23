@@ -556,7 +556,8 @@ class S3MessageAttachmentModel(S3Model):
         tablename = "msg_attachment"
         self.define_table(tablename,
                           # FK not instance
-                          self.msg_message_id(ondelete="CASCADE"),
+                          self.msg_message_id(ondelete = "CASCADE"),
+                          # document_id not doc_id
                           self.doc_document_id(),
                           *s3_meta_fields())
 
@@ -609,7 +610,7 @@ class S3MessageContactModel(S3Model):
                                 ),
                           Field("phone",
                                 label = T("Phone"),
-                                requires = IS_EMPTY_OR(s3_phone_requires),
+                                requires = IS_EMPTY_OR(IS_PHONE_NUMBER_MULTI()),
                                 ),
                           Field("from_address",
                                 label = T("Email"),
@@ -2425,18 +2426,20 @@ class S3TwitterSearchModel(S3ChannelModel):
         """
 
         if r.representation == "html" and r.name == "twitter_result":
+
+            appname = r.application
             response = current.response
             s3 = response.s3
-            appname = r.application
 
             # Add core Simile Code
-            s3.scripts.append("/%s/static/scripts/simile/timeline/timeline-api.js" % appname)
+            #s3.scripts.append("/%s/static/scripts/simile/timeline/timeline-api.js" % appname)
 
-            # Add our control script
-            if s3.debug:
-                s3.scripts.append("/%s/static/scripts/S3/s3.timeline.js" % appname)
-            else:
-                s3.scripts.append("/%s/static/scripts/S3/s3.timeline.min.js" % appname)
+            # Add our controlled script
+            #if s3.debug:
+            #    s3.scripts.append("/%s/static/scripts/S3/s3.timeline.js" % appname)
+            #else:
+            #    s3.scripts.append("/%s/static/scripts/S3/s3.timeline.min.js" % appname)
+            s3_include_simile()
 
             # Add our data
             # @ToDo: Make this the initial data & then collect extra via REST with a stylesheet
@@ -2489,7 +2492,9 @@ S3.timeline.now="''', now.isoformat(), '''"
             s3.js_global.append(code)
 
             # Create the DIV
-            item = DIV(_id="s3timeline", _class="s3-timeline")
+            item = DIV(_id = "s3timeline",
+                       _class = "s3-timeline",
+                       )
 
             output = {"item": item}
 

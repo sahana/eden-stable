@@ -2,7 +2,7 @@
 
 """ S3 Notifications
 
-    @copyright: 2011-2019 (c) Sahana Software Foundation
+    @copyright: 2011-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -191,7 +191,7 @@ class S3Notifications(object):
 
         # Send the request
         _debug("Requesting %s" % page_url)
-        req = urllib2.Request(page_url, data=data)
+        req = urllib2.Request(page_url, data=data.encode("utf-8"))
         req.add_header("Content-Type", "application/json")
         success = False
         try:

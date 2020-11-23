@@ -2,7 +2,7 @@
 
 """ Sahana Eden Fire Models
 
-    @copyright: 2009-2019 (c) Sahana Software Foundation
+    @copyright: 2009-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -212,7 +212,7 @@ class S3FireStationModel(S3Model):
                      location_id(),
                      Field("phone",
                            label = T("Phone"),
-                           requires = IS_EMPTY_OR(s3_phone_requires),
+                           requires = IS_EMPTY_OR(IS_PHONE_NUMBER_MULTI()),
                            ),
                      Field("email",
                            label = T("Email"),
@@ -225,7 +225,7 @@ class S3FireStationModel(S3Model):
                            ),
                      #Field("fax",
                      #      label = T("Fax"),
-                     #      requires = IS_EMPTY_OR(s3_phone_requires),
+                     #      requires = IS_EMPTY_OR(IS_PHONE_NUMBER_MULTI()),
                      #      ),
                      Field("obsolete", "boolean",
                            default = False,

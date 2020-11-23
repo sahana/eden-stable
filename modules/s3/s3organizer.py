@@ -2,7 +2,7 @@
 
 """ S3 Organizer (Calendar-based CRUD)
 
-    @copyright: 2018-2019 (c) Sahana Software Foundation
+    @copyright: 2018-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -41,7 +41,7 @@ except ImportError:
     raise
 import json
 import os
-import uuid
+from uuid import uuid4
 
 from gluon import current, DIV, INPUT
 from gluon.storage import Storage
@@ -200,8 +200,12 @@ class S3Organizer(S3Method):
                                          permitted("create"),
                            "editable": get_config("editable", True) and \
                                        permitted("update"),
-                           "startEditable": start.field and start.field.writable,
-                           "durationEditable": end and end.field and end.field.writable,
+                           "startEditable": start.field and \
+                                            start.field.writable and \
+                                            config.get("start_editable", True),
+                           "durationEditable": end and end.field and \
+                                               end.field.writable and \
+                                               config.get("duration_editable", True),
                            "deletable": get_config("deletable", True) and \
                                         permitted("delete"),
                            # Forced reload on update, e.g. if onaccept changes
@@ -229,7 +233,7 @@ class S3Organizer(S3Method):
             resource_config["colors"] = config.get("colors")
 
         # Generate form key
-        formkey = uuid.uuid4().hex
+        formkey = uuid4().hex
 
         # Store form key in session
         session = current.session
@@ -660,6 +664,8 @@ class S3Organizer(S3Method):
 
         return {"start": start_rfield,
                 "end": end_rfield,
+                "start_editable": config.get("start_editable", True),
+                "duration_editable": config.get("duration_editable", True),
                 "use_time": use_time,
                 "title": represent,
                 "description": description,

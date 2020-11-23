@@ -2,7 +2,7 @@
 
 """ Sahana Eden Supply Model
 
-    @copyright: 2009-2019 (c) Sahana Software Foundation
+    @copyright: 2009-2020 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -41,7 +41,7 @@ __all__ = ("S3SupplyModel",
            "supply_item_entity_contacts",
            "supply_item_entity_status",
            "supply_ItemRepresent",
-           #"supply_ItemCategoryRepresent",
+           "supply_ItemCategoryRepresent",
            "supply_get_shipping_code",
            "supply_item_pack_quantities",
            )
@@ -420,7 +420,7 @@ $.filterOptionsS3({
                            label = T("Year of Manufacture"),
                            represent = lambda v: v or NONE,
                            requires = IS_EMPTY_OR(
-                                        IS_INT_IN_RANGE(1900, current.request.now.year)
+                                        IS_INT_IN_RANGE(1900, current.request.now.year + 1)
                                         ),
                            ),
                      Field("weight", "double",
@@ -530,10 +530,10 @@ $.filterOptionsS3({
                             ),
             ]
 
-        report_options = Storage(defaults=Storage(rows="name",
-                                                  cols="item_category_id",
-                                                  fact="count(brand_id)",
-                                                  ),
+        report_options = Storage(defaults = Storage(rows = "name",
+                                                    cols = "item_category_id",
+                                                    fact = "count(brand_id)",
+                                                    ),
                                  )
 
         # Default summary
@@ -640,7 +640,7 @@ $.filterOptionsS3({
                           "item_id$name",
                           "item_id$model",
                           "item_id$comments"
-                         ],
+                          ],
                          label = T("Search"),
                          comment = T("Search for an item by its code, name, model and/or comment."),
                         ),
@@ -1160,7 +1160,8 @@ $.filterOptionsS3({
         if quantity:
             query &= (table.quantity == quantity)
         duplicate = current.db(query).select(table.id,
-                                             limitby=(0, 1)).first()
+                                             limitby = (0, 1)
+                                             ).first()
         if duplicate:
             item.id = duplicate.id
             item.method = item.METHOD.UPDATE
@@ -1175,35 +1176,34 @@ $.filterOptionsS3({
 
         db = current.db
 
-        formvars = form.vars
-        item_id = formvars.id
-        catalog_id = formvars.catalog_id
+        form_vars = form.vars
+        item_id = form_vars.id
+        catalog_id = form_vars.catalog_id
         catalog_item_id = None
 
         citable = db.supply_catalog_item
         query = (citable.item_id == item_id) & \
-                (citable.deleted == False )
-        rows = db(citable).select(citable.id)
+                (citable.deleted == False)
+        rows = db(query).select(citable.id)
         if not len(rows):
-        # Create supply_catalog_item
+            # Create supply_catalog_item
             catalog_item_id = \
                 citable.insert(catalog_id = catalog_id,
-                               item_category_id = formvars.item_category_id,
+                               item_category_id = form_vars.item_category_id,
                                item_id = item_id
                                )
-        # Update if the catalog/category has changed - if there is only supply_catalog_item
         elif len(rows) == 1:
+            # Update if the catalog/category has changed - if there is only supply_catalog_item
             catalog_item_id = rows.first().id
             catalog_item_id = \
-                db(citable.id == catalog_item_id
-                   ).update(catalog_id = catalog_id,
-                            item_category_id = formvars.item_category_id,
-                            item_id = item_id
-                            )
+                db(citable.id == catalog_item_id).update(catalog_id = catalog_id,
+                                                         item_category_id = form_vars.item_category_id,
+                                                         item_id = item_id,
+                                                         )
         #current.auth.s3_set_record_owner(citable, catalog_item_id, force_update=True)
 
         # Update UM
-        um = formvars.um or db.supply_item.um.default
+        um = form_vars.um or db.supply_item.um.default
         table = db.supply_item_pack
         # Try to update the existing record
         query = (table.item_id == item_id) & \
@@ -1213,14 +1213,15 @@ $.filterOptionsS3({
             # Create a new item packet
             table.insert(item_id = item_id,
                          name = um,
-                         quantity = 1)
+                         quantity = 1,
+                         )
 
-        if formvars.kit:
+        if form_vars.kit:
             # Go to that tab afterwards
-            url = URL(args=["[id]", "kit_item"])
+            url = URL(args = ["[id]", "kit_item"])
             current.s3db.configure("supply_item",
-                                   create_next=url,
-                                   update_next=url,
+                                   create_next = url,
+                                   update_next = url,
                                    )
 
 # =============================================================================
@@ -1376,10 +1377,11 @@ class S3SupplyDistributionModel(S3Model):
                                           "reference %s" % tablename,
                                           ondelete = "CASCADE",
                                           #represent = represent,
-                                          requires = IS_ONE_OF(db,
-                                                        "%s.id" % tablename,
-                                                        #represent,
-                                                        ),
+                                          requires = IS_EMPTY_OR(
+                                                        IS_ONE_OF(db,
+                                                            "%s.id" % tablename,
+                                                            #represent,
+                                                            )),
                                           )
 
         # ---------------------------------------------------------------------
@@ -1395,22 +1397,22 @@ class S3SupplyDistributionModel(S3Model):
             query = (table.deleted == False)
             min_field = table.date.min()
             date_min = db(query).select(min_field,
-                                        orderby=min_field,
-                                        limitby=(0, 1)
+                                        orderby = min_field,
+                                        limitby = (0, 1)
                                         ).first()
             start_year = date_min and date_min[min_field].year
 
             max_field = table.date.max()
             date_max = db(query).select(max_field,
                                         orderby=max_field,
-                                        limitby=(0, 1)
+                                        limitby = (0, 1)
                                         ).first()
             last_start_year = date_max and date_max[max_field].year
 
             max_field = table.end_date.max()
             date_max = db(query).select(max_field,
                                         orderby=max_field,
-                                        limitby=(0, 1)
+                                        limitby = (0, 1)
                                         ).first()
             last_end_year = date_max and date_max[max_field].year
 
@@ -1438,25 +1440,25 @@ class S3SupplyDistributionModel(S3Model):
             #             label = T("Search Distributions"),
             #             ),
             S3LocationFilter("location_id",
-                             levels=levels,
-                             widget="multiselect"
+                             levels = levels,
+                             widget = "multiselect"
                              ),
             S3OptionsFilter("activity_id$activity_organisation.organisation_id",
-                            widget="multiselect"
+                            widget = "multiselect"
                             ),
             S3OptionsFilter("parameter_id",
                             label = T("Item"),
-                            widget="multiselect"
+                            widget = "multiselect"
                             ),
             # @ToDo: Range Slider using start_date & end_date
             #S3DateFilter("date",
             #             )
             # @ToDo: OptionsFilter working with Lazy VF
             #S3OptionsFilter("year",
-            #                label=T("Year"),
+            #                label = T("Year"),
             #                options = year_options,
-            #                widget="multiselect",
-            #                hidden=True,
+            #                widget = "multiselect",
+            #                hidden = True,
             #                ),
             ]
 
@@ -1477,9 +1479,9 @@ class S3SupplyDistributionModel(S3Model):
             filter_widgets.insert(0,
                 S3OptionsFilter("activity_id$sector_activity.sector_id",
                                 # Doesn't allow translation
-                                #represent="%(name)s",
-                                widget="multiselect",
-                                #hidden=True,
+                                #represent = "%(name)s",
+                                widget = "multiselect",
+                                #hidden = True,
                                 ))
 
         if settings.get_project_hazards():
@@ -1490,19 +1492,19 @@ class S3SupplyDistributionModel(S3Model):
             report_fields.append("activity_id$project_id")
             filter_widgets.append(
                 S3OptionsFilter("activity_id$project_id",
-                                widget="multiselect"
+                                widget = "multiselect"
                                 ),
                 #S3OptionsFilter("activity_id$project_id$organisation_id",
                 #                label = T("Lead Organization"),
-                #                widget="multiselect"
+                #                widget = "multiselect"
                 #                ),
                 #S3OptionsFilter("activity_id$project_id$partner.organisation_id",
                 #                label = T("Partners"),
-                #                widget="multiselect"),
+                #                widget = "multiselect"),
                 #S3OptionsFilter("activity_id$project_id$donor.organisation_id",
                 #                label = T("Donors"),
-                #                location_level="L1",
-                #                widget="multiselect")
+                #                location_level = "L1",
+                #                widget = "multiselect")
                 )
 
         if settings.get_project_themes():
@@ -1510,9 +1512,9 @@ class S3SupplyDistributionModel(S3Model):
             filter_widgets.append(
                 S3OptionsFilter("activity_id$project_id$theme_project.theme_id",
                                 # Doesn't allow translation
-                                #represent="%(name)s",
-                                widget="multiselect",
-                                #hidden=True,
+                                #represent = "%(name)s",
+                                widget = "multiselect",
+                                #hidden = True,
                                 ))
 
         for level in levels:
@@ -1557,6 +1559,15 @@ class S3SupplyDistributionModel(S3Model):
                   super_entity = "stats_data",
                   )
 
+        self.add_components(tablename,
+                            pr_person = {"link": "supply_distribution_person",
+                                         "joinby": "distribution_id",
+                                         "key": "person_id",
+                                         "actuate": "hide",
+                                         },
+                            supply_distribution_person = "distribution_id",
+                            )
+
         # ---------------------------------------------------------------------
         # Supply Distributions <> Named Beneficiaries Link Table
         #
@@ -1566,15 +1577,9 @@ class S3SupplyDistributionModel(S3Model):
                                        label = T("Head of Household"),
                                        ondelete = "CASCADE",
                                        ),
-                     Field("supply_distribution_id", "reference supply_distribution",
-                           label = T("Item"),
-                           ondelete = "CASCADE",
-                           #represent = represent,
-                           #requires = IS_ONE_OF(current.db, "supply_distribution.id",
-                           #                     #represent,
-                           #                     sort=True)),
-                           requires = IS_IN_DB(db, "supply_distribution.id"),
-                           ),
+                     distribution_id(label = T("Item"),
+                                     empty = False,
+                                     ),
                      Field("received", "boolean",
                            default = True,
                            label = T("Received?"),
@@ -1816,7 +1821,7 @@ class S3SupplyPersonModel(S3Model):
                      self.pr_person_id(empty = False,
                                        ondelete = "CASCADE",
                                        ),
-                     status_id(empty = False),
+                     status_id(), # empty = False (in templates as-required)
                      # Requested By / Taken By
                      self.org_organisation_id(ondelete = "SET NULL",
                                               ),
@@ -1875,11 +1880,11 @@ class supply_ItemRepresent(S3Represent):
             fields.append("supply_item.um")
 
         super(supply_ItemRepresent,
-              self).__init__(lookup="supply_item",
-                             fields=fields,
-                             show_link=show_link,
-                             translate=translate,
-                             multiple=multiple)
+              self).__init__(lookup = "supply_item",
+                             fields = fields,
+                             show_link = show_link,
+                             translate = translate,
+                             multiple = multiple)
 
     # -------------------------------------------------------------------------
     def lookup_rows(self, key, values, fields=None):
@@ -2927,7 +2932,7 @@ def supply_get_shipping_code(doctype, site_id, field):
     if site_id:
         table = current.s3db.org_site
         site = db(table.site_id == site_id).select(table.code,
-                                                   limitby=(0, 1)
+                                                   limitby = (0, 1)
                                                    ).first()
         if site:
             scode = site.code
@@ -2940,8 +2945,9 @@ def supply_get_shipping_code(doctype, site_id, field):
     if field:
         query = (field.like("%s%%" % code))
         ref_row = db(query).select(field,
-                                   limitby=(0, 1),
-                                   orderby=~field).first()
+                                   limitby = (0, 1),
+                                   orderby = ~field
+                                   ).first()
         if ref_row:
             ref = ref_row(field)
             number = int(ref[-6:])
