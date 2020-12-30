@@ -1,22 +1,30 @@
 # -*- coding: utf-8 -*-
 
+"""
+    Application Template for Rhineland-Palatinate (RLP) Crisis Management
+    - used to manage Volunteer Pools for COVID-19 response
+
+    @license MIT
+"""
+
 import datetime
 
 from collections import OrderedDict
 
-from gluon import current, redirect, URL, A, DIV, TABLE, TAG, TR
+from gluon import current, redirect, URL, DIV, TABLE, TAG, TR
 from gluon.storage import Storage
 
-from s3 import FS, S3DateFilter, S3Represent, s3_fieldmethod, s3_fullname, s3_yes_no_represent
+from s3 import FS, IS_LOCATION, S3DateFilter, S3Represent, s3_fieldmethod, s3_fullname, s3_yes_no_represent
 from s3dal import original_tablename
 
+from .helpers import rlp_active_deployments
+#from .rlpgeonames import rlp_GeoNames
+
+MSAGD = "Ministerium für Soziales, Arbeit, Gesundheit und Demografie"
 ALLOWED_FORMATS = ("html", "iframe", "popup", "aadata", "json", "xls", "pdf")
 
+# =============================================================================
 def config(settings):
-    """
-        Settings for Rhineland-Palatinate (RLP) Crisis Management Tool
-        - used to manage Volunteer Pools for COVID-19 response
-    """
 
     T = current.T
 
@@ -70,6 +78,10 @@ def config(settings):
     # Uncomment to show the Print control:
     # http://eden.sahanafoundation.org/wiki/UserGuidelines/Admin/MapPrinting
     #settings.gis.print_button = True
+
+    # Use custom geocoder (disabled until production-ready)
+    #if rlp_GeoNames.enable:
+    #    settings.gis.geocode_service = rlp_GeoNames
 
     # L10n settings
     # Languages used in the deployment (used for Language Toolbar, GIS Locations, etc)
@@ -127,6 +139,8 @@ def config(settings):
     settings.pr.separate_name_fields = 2
     settings.pr.name_format= "%(last_name)s, %(first_name)s"
 
+    settings.pr.availability_json_rules = True
+
     # -------------------------------------------------------------------------
     settings.hrm.record_tab = False
     settings.hrm.staff_experience = False
@@ -137,7 +151,7 @@ def config(settings):
 
     # -------------------------------------------------------------------------
     settings.org.projects_tab = False
-    settings.org.default_organisation = "Ministerium für Soziales, Arbeit, Gesundheit und Demografie"
+    settings.org.default_organisation = MSAGD
 
     # -------------------------------------------------------------------------
     # Custom group types for volunteer pools
@@ -146,6 +160,9 @@ def config(settings):
                   22: T("Managed Pool"),
                   }
     pool_type_ids = list(pool_types.keys())
+
+    # Override in models/000_config.py with site-specific file name
+    settings.custom.poolrules = "poolrules.default.xml"
 
     # -------------------------------------------------------------------------
     # Realm Rules
@@ -395,12 +412,55 @@ def config(settings):
         s3.prep = custom_prep
 
         # Custom rheader
+        from .rheaders import rlp_org_rheader
         attr = dict(attr)
         attr["rheader"] = rlp_org_rheader
 
         return attr
 
     settings.customise_org_organisation_controller = customise_org_organisation_controller
+
+    # -------------------------------------------------------------------------
+    def customise_org_office_resource(r, tablename):
+
+        if r.interactive:
+
+            from s3 import S3SQLCustomForm, S3SQLInlineLink
+            crud_fields = ["name",
+                            #"code",
+                            "organisation_id",
+                            "office_type_id",
+                            S3SQLInlineLink("facility_type",
+                                            field = "facility_type_id",
+                                            label = T("Facility Type"),
+                                            cols = 3,
+                                            ),
+                            "location_id",
+                            "phone1",
+                            "phone2",
+                            "email",
+                            "fax",
+                            "obsolete",
+                            "comments",
+                            ]
+
+            list_fields = ["id",
+                           "name",
+                           "office_type_id",
+                           "organisation_id",
+                           "location_id",
+                            "phone1",
+                            "phone2",
+                            "email",
+                            "fax",
+                           ]
+
+            current.s3db.configure("org_office",
+                                   crud_form = S3SQLCustomForm(*crud_fields),
+                                   list_fields = list_fields,
+                                   )
+
+    settings.customise_org_office_resource = customise_org_office_resource
 
     # -------------------------------------------------------------------------
     def customise_org_office_controller(**attr):
@@ -420,13 +480,28 @@ def config(settings):
                                                     "name",
                                                     ],
                                      )
-
             return result
         s3.prep = custom_prep
 
         return attr
 
     settings.customise_org_office_controller = customise_org_office_controller
+
+    # -------------------------------------------------------------------------
+    def customise_org_facility_type_resource(r, tablename):
+
+        table = current.s3db.org_facility_type
+        field = table.vol_deployments
+        field.readable = field.writable = True
+
+        current.s3db.configure("org_facility_type",
+                               list_fields = ["name",
+                                              "vol_deployments",
+                                              "comments",
+                                              ],
+                               )
+
+    settings.customise_org_facility_type_resource = customise_org_facility_type_resource
 
     # -------------------------------------------------------------------------
     def pr_group_onaccept(form):
@@ -703,6 +778,13 @@ def config(settings):
                                           "filterby": {"type": 1},
                                           "multiple": False,
                                           },
+                            # All phone numbers as a single "phonenumber" component
+                            pr_contact = {"name": "phonenumber",
+                                          "joinby": "pe_id",
+                                          "filterby": {
+                                            "contact_method": ("SMS", "HOME_PHONE", "WORK_PHONE"),
+                                          },
+                                         },
                             )
 
         s3db.add_components("pr_person",
@@ -852,6 +934,10 @@ def config(settings):
                                                  ),
                        )
 
+        # Don't show deployment sites as links (pointless for most users)
+        field = s3db.pr_person_availability_site.site_id
+        field.represent = s3db.org_SiteRepresent(show_link = False)
+
         if r.method == "import" or not current.auth.user:
             # Skip uniqueness validator for occupation types in imports
             # - deduplicate takes care of name matches
@@ -905,6 +991,53 @@ def config(settings):
     settings.customise_pr_person_resource = customise_pr_person_resource
 
     # -------------------------------------------------------------------------
+    def customise_volunteer_availability_fields(r):
+        """
+            Customise availability fields in volunteer form
+
+            @param r: the current S3Request
+        """
+
+        from s3 import S3WeeklyHoursWidget, S3WithIntro, s3_text_represent
+
+        avtable = current.s3db.pr_person_availability
+        is_profile = r.controller == "default"
+
+        # Enable hours/week
+        field = avtable.hours_per_week
+        field.readable = field.writable = True
+
+        # Configure schedule_json
+        field = avtable.schedule_json
+        field.readable = field.writable = True
+        if is_profile:
+            # Add intro text for widget
+            field.widget = S3WithIntro(field.widget,
+                                       intro = ("pr", "person_availability", "HoursMatrixIntro"),
+                                       )
+        if r.representation == "xls":
+            field.represent = lambda v: S3WeeklyHoursWidget.represent(v, html=False)
+        else:
+            field.represent = S3WeeklyHoursWidget.represent
+
+        # Configure availability comments
+        field = avtable.comments
+        field.label = T("Availability Comments")
+        field.represent = lambda v: s3_text_represent(v,
+                                        lines = 8 if r.record else 5,
+                                        _class = "avcomments",
+                                        )
+        if is_profile:
+            # Add tooltip for availability comments
+            field.comment = DIV(_class = "tooltip",
+                                _title = "%s|%s" % (T("Availability Comments"),
+                                                    T("Use this field to indicate e.g. vacation dates or other information with regard to your availability to facilitate personnel planning"),
+                                                    ),
+                                )
+        else:
+            field.comment = None
+
+    # -------------------------------------------------------------------------
     def volunteer_list_fields(r, coordinator=False, name_fields=None):
         """
             Determine fields for volunteer list
@@ -924,8 +1057,10 @@ def config(settings):
                        # name
                        "occupation_type_person.occupation_type_id",
                        (T("Hours/Wk"), "availability.hours_per_week"),
-                       "availability.schedule",
-                       (T("Mobile Phone"), "phone.value"),
+                       "availability.schedule_json",
+                       "availability.comments",
+                       #(T("Mobile Phone"), "phone.value"),
+                       (T("Phone"), "phonenumber.value"),
                        # email
                        "current_address.location_id$addr_postcode",
                        (T("Place of Residence"), "current_address.location_id$L3"),
@@ -946,6 +1081,7 @@ def config(settings):
             # Email address
             list_fields.insert(-2, (T("Email"), "email.value"))
             if coordinator:
+                list_fields.append((T("Skills / Resources"), "competency.skill_id"))
                 # Office information
                 office = "volunteer_record.site_id$site_id:org_office"
                 list_fields.extend([
@@ -956,11 +1092,15 @@ def config(settings):
 
         # Status, current deployment and account info as last columns
         if coordinator:
+            from s3 import S3DateTime
+            current.s3db.auth_user.created_on.represent = S3DateTime.datetime_represent
+
             list_fields.extend([
                 "volunteer_record.status",
                 (T("Current Deployment"), "ongoing_deployment.organisation_id"),
                 (T("Deployed until"), "ongoing_deployment.end_date"),
                 (T("has Account"), "has_account"),
+                (T("Registered on"), "user.created_on"),
                 ])
 
         return list_fields
@@ -1085,6 +1225,8 @@ def config(settings):
                 ])
 
         # Common fields for all cases
+        from gluon import IS_IN_SET
+        from .helpers import rlp_deployment_sites
         crud_fields.extend([
                 S3SQLInlineLink("occupation_type",
                                label = T("Occupation Type"),
@@ -1092,7 +1234,18 @@ def config(settings):
                                ),
                 (T("Occupation / Speciality"), "person_details.occupation"),
                 "availability.hours_per_week",
-                "availability.schedule",
+                "availability.schedule_json",
+                S3SQLInlineLink("availability_sites",
+                                field = "site_id",
+                                label = T("Possible Deployment Sites"),
+                                requires = IS_IN_SET(rlp_deployment_sites(),
+                                                     multiple = True,
+                                                     zero = None,
+                                                     sort = False,
+                                                     ),
+                                render_list = True,
+                                ),
+                "availability.comments",
                 "volunteer_record.comments",
                 ])
 
@@ -1118,6 +1271,8 @@ def config(settings):
             resource = r.resource
             table = resource.table
 
+            controller = r.controller
+
             from gluon import IS_NOT_EMPTY
             from s3 import (IS_ONE_OF,
                             IS_PERSON_GENDER,
@@ -1130,7 +1285,6 @@ def config(settings):
                             S3TextFilter,
                             StringTemplateParser,
                             s3_get_filter_opts,
-                            s3_text_represent,
                             )
 
             # Make last name mandatory
@@ -1151,27 +1305,18 @@ def config(settings):
                                               zero = None,
                                               )
 
-            # Enable weekly hours
-            avtable = s3db.pr_person_availability
-            field = avtable.hours_per_week
-            field.readable = field.writable = True
-            field = avtable.schedule
-            field.readable = field.writable = True
-            field.represent = lambda v: \
-                              s3_text_represent(v,
-                                                lines = 5 if r.record else 3,
-                                                _class = "availability-times",
-                                                )
-            field.comment = DIV(_class = "tooltip",
-                                _title = "%s|%s" % (T("Availability Schedule"),
-                                                    T("Specify days/hours like: Monday 10-12; Tuesday 10-12 and 14-19; Friday 13-15"),
-                                                    ),
-                                )
+            # Availability
+            customise_volunteer_availability_fields(r)
 
-            # Hide map selector in address
+            # Configure Location Selector
             atable = s3db.pr_address
             field = atable.location_id
-            field.widget = S3LocationSelector(show_address = True,
+            field.requires = IS_LOCATION() # Mandatory
+            field.widget = S3LocationSelector(levels = ("L1", "L2", "L3"),
+                                              required_levels = ("L1", "L2", "L3"),
+                                              show_address = True,
+                                              show_postcode = True,
+                                              postcode_required = True,
                                               show_map = False,
                                               )
 
@@ -1187,7 +1332,7 @@ def config(settings):
             keys = StringTemplateParser.keys(settings.get_pr_name_format())
             name_fields = [fn for fn in keys if fn in NAMES]
 
-            if r.controller == "vol":
+            if controller == "vol":
                 # Volunteer perspective (vol/person)
 
                 record = r.record
@@ -1235,26 +1380,13 @@ def config(settings):
                         resource.add_filter(FS("volunteer_record.status") == 1)
 
                 list_title = T("Volunteers")
+                from .helpers import RLPAvailabilityFilter, \
+                                        RLPAvailabilitySiteFilter, \
+                                        rlp_deployment_sites
                 if not record:
-                    # Availability Filter
-                    parse_dt = current.calendar.parse_date
-                    from_date = parse_dt(get_vars.get("available__ge"))
-                    to_date = parse_dt(get_vars.get("available__le"))
-                    if from_date or to_date:
-                        # Filter out volunteers who have a confirmed
-                        # deployment during selected date interval
-                        # (must pre-query to bypass realm limits)
-                        dtable = s3db.hrm_delegation
-                        query = rlp_active_deployments(dtable,
-                                                       from_date,
-                                                       to_date,
-                                                       )
-                        rows = db(query).select(dtable.person_id,
-                                                cache = s3db.cache,
-                                                )
-                        if rows:
-                            unavailable = {row.person_id for row in rows}
-                            resource.add_filter(~FS("id").belongs(unavailable))
+                    # Apply custom filters
+                    RLPAvailabilityFilter.apply_filter(resource, get_vars)
+                    RLPAvailabilitySiteFilter.apply_filter(resource, get_vars)
 
                     # Ongoing deployments as component
                     s3db.add_components("pr_person",
@@ -1315,6 +1447,7 @@ def config(settings):
                     # - has an approved deployment the user can access
                     person_id = record.id if record else None
                     if person_id:
+                        from .helpers import rlp_deployed_with_org
                         show_contact_details = coordinator or \
                                                open_pool_member(person_id) or \
                                                rlp_deployed_with_org(person_id)
@@ -1358,29 +1491,44 @@ def config(settings):
                         S3OptionsFilter("occupation_type_person.occupation_type_id",
                                         options = lambda: s3_get_filter_opts("pr_occupation_type"),
                                         ),
+                        S3LocationFilter("current_address.location_id",
+                                         label = T("Place of Residence"),
+                                         levels = ("L2", "L3"),
+                                         ),
                         RLPAvailabilityFilter("delegation.date",
                                               label = T("Available"),
                                               #hide_time = True,
                                               ),
-                        S3LocationFilter("current_address.location_id",
-                                         label = T("Place of Residence"),
-                                         levels = ("L2", "L3"),
-                                         hidden = True,
-                                         ),
+                        S3OptionsFilter("availability.days_of_week",
+                                        label = T("On Weekdays"),
+                                        options = OrderedDict((
+                                                    (1, T("Mon##weekday")),
+                                                    (2, T("Tue##weekday")),
+                                                    (3, T("Wed##weekday")),
+                                                    (4, T("Thu##weekday")),
+                                                    (5, T("Fri##weekday")),
+                                                    (6, T("Sat##weekday")),
+                                                    (0, T("Sun##weekday")),
+                                                    )),
+                                        cols = 7,
+                                        sort = False,
+                                        ),
+                        RLPAvailabilitySiteFilter("availability_site.site_id",
+                                                  label = T("Possible Deployment Sites"),
+                                                  options = lambda: rlp_deployment_sites(managed_orgs=True),
+                                                  sort = False,
+                                                  ),
                         S3RangeFilter("availability.hours_per_week",
-                                      hidden = True,
                                       ),
                         S3OptionsFilter("competency.skill_id",
                                         label = T("Skills / Resources"),
                                         options = lambda: s3_get_filter_opts("hrm_skill"),
-                                        hidden = True,
                                         cols = 2,
                                         ),
                         S3AgeFilter("date_of_birth",
                                     label = T("Age"),
                                     minimum = 12,
                                     maximum = 90,
-                                    hidden = True,
                                     ),
                         ]
 
@@ -1422,28 +1570,58 @@ def config(settings):
                        r.interactive and r.method is None and not r.component_id:
                         r.method = "organize"
 
-            elif r.controller == "default":
+            elif controller == "default":
                 # Personal profile (default/person)
                 if not r.component:
-                    # Custom Form
-                    from s3 import S3SQLInlineLink
-                    crud_fields = name_fields
-                    crud_fields.extend(["date_of_birth",
-                                        "gender",
-                                        S3SQLInlineLink("occupation_type",
-                                                       label = T("Occupation Type"),
-                                                       field = "occupation_type_id",
-                                                       ),
-                                        (T("Occupation / Speciality"), "person_details.occupation"),
-                                        "volunteer_record.start_date",
-                                        "volunteer_record.end_date",
-                                        "volunteer_record.status",
-                                        "availability.hours_per_week",
-                                        "availability.schedule",
-                                        "volunteer_record.comments",
-                                        ])
 
-                    resource.configure(crud_form = S3SQLCustomForm(*crud_fields),
+                    # Check if volunteer
+                    volunteer_id = None
+                    if r.id:
+                        rows = r.resource.select(["volunteer_record.id"], limit = 1).rows
+                        if rows:
+                            volunteer_id = rows[0]["hrm_volunteer_record_human_resource.id"]
+
+                    # Custom Form
+                    from gluon import IS_IN_SET
+                    from s3 import S3SQLInlineLink, S3WithIntro
+                    from .helpers import rlp_deployment_sites
+                    crud_fields = name_fields
+                    if volunteer_id:
+                        # Volunteer-specific fields
+                        crud_fields.extend(["date_of_birth",
+                                            "gender",
+                                            S3SQLInlineLink("occupation_type",
+                                                        label = T("Occupation Type"),
+                                                        field = "occupation_type_id",
+                                                        ),
+                                            (T("Occupation / Speciality"), "person_details.occupation"),
+                                            "volunteer_record.start_date",
+                                            "volunteer_record.end_date",
+                                            "volunteer_record.status",
+                                            "availability.hours_per_week",
+                                            "availability.schedule_json",
+                                            S3WithIntro(
+                                                S3SQLInlineLink("availability_sites",
+                                                        field = "site_id",
+                                                        label = T("Possible Deployment Sites"),
+                                                        requires = IS_IN_SET(rlp_deployment_sites(),
+                                                                            multiple = True,
+                                                                            zero = None,
+                                                                            sort = False,
+                                                                            ),
+                                                        render_list = True,
+                                                        ),
+                                                # Widget intro text from CMS
+                                                intro = ("pr", "person_availability_site", "AvailabilitySitesIntro"),
+                                                ),
+                                            "availability.comments",
+                                            "volunteer_record.comments",
+                                            ])
+
+                    from .helpers import rlp_update_pool
+                    resource.configure(crud_form = S3SQLCustomForm(*crud_fields,
+                                                        postprocess = rlp_update_pool if volunteer_id else None,
+                                                        ),
                                        deletable = False,
                                        )
 
@@ -1478,28 +1656,40 @@ def config(settings):
                 output = standard_postp(r, output)
 
             if r.controller in ("vol", "default") and \
-               not r.component and r.record and \
-               r.method in (None, "update", "read") and \
+               not r.component and \
                isinstance(output, dict):
+                # Geocoder
+                #s3.scripts.append("/%s/static/themes/RLP/js/geocoder.js" % r.application)
+                #if r.record:
+                #    s3.jquery_ready.append('''S3.rlp_GeoCoder("sub_defaultaddress_defaultaddress_i_location_id_edit_0")''')
+                #else:
+                #    s3.jquery_ready.append('''S3.rlp_GeoCoder("sub_defaultaddress_defaultaddress_i_location_id_edit_none")''')
+                #s3.js_global.append('''i18n.location_found="%s"
+#i18n.location_not_found="%s"''' % (T("Location Found"),
+                #                   T("Location NOT Found"),
+                #                   ))
+                if r.record and \
+                   r.method in (None, "update", "read"):
 
-                # Custom CRUD buttons
-                if "buttons" not in output:
-                    buttons = output["buttons"] = {}
-                else:
-                    buttons = output["buttons"]
+                    # Custom CRUD buttons
+                    if "buttons" not in output:
+                        buttons = output["buttons"] = {}
+                    else:
+                        buttons = output["buttons"]
 
-                # Anonymize-button
-                from s3 import S3AnonymizeWidget
-                anonymize = S3AnonymizeWidget.widget(r,
-                                         _class="action-btn anonymize-btn")
+                    # Anonymize-button
+                    from s3 import S3AnonymizeWidget
+                    anonymize = S3AnonymizeWidget.widget(r,
+                                             _class="action-btn anonymize-btn")
 
-                # Render in place of the delete-button
-                buttons["delete_btn"] = TAG[""](anonymize,
-                                                )
+                    # Render in place of the delete-button
+                    buttons["delete_btn"] = TAG[""](anonymize,
+                                                    )
             return output
         s3.postp = custom_postp
 
         # Custom rheaders
+        from .rheaders import rlp_vol_rheader, rlp_profile_rheader
         controller = current.request.controller
         if controller == "vol":
             # Use RLP volunteer rheader
@@ -1600,23 +1790,6 @@ def config(settings):
             #    field = table.comments
             #    field.writable = False
             #    field.comment = None
-
-    # -------------------------------------------------------------------------
-    def delegation_read_multiple_orgs():
-
-        realms = current.auth.permission.permitted_realms("hrm_delegation", "read")
-        if realms is None:
-            multiple_orgs = True
-            org_ids = []
-        else:
-            otable = current.s3db.org_organisation
-            query = (otable.pe_id.belongs(realms)) & \
-                    (otable.deleted == False)
-            rows = current.db(query).select(otable.id)
-            multiple_orgs = len(rows) > 1
-            org_ids = [row.id for row in rows]
-
-        return multiple_orgs, org_ids
 
     # -------------------------------------------------------------------------
     def delegation_free_interval(target, occupied, recurse=False, original=None):
@@ -1921,8 +2094,10 @@ def config(settings):
                     }
 
         table = s3db.hrm_delegation
+
+        from .helpers import RLPDelegatedPersonRepresent
         field = table.person_id
-        field.represent = rlp_DelegatedPersonRepresent()
+        field.represent = RLPDelegatedPersonRepresent()
 
         if r.interactive:
             # Add tooltip for status-field to explain statuses
@@ -1990,8 +2165,8 @@ def config(settings):
                                            "status",
                                            ]
 
-                # - must not insert here
-                s3db.configure("hrm_delegation", insertable = False)
+            # Can insert on tab
+            s3db.configure("hrm_delegation", insertable = bool(volunteer_id))
 
             # Apply delegation workflow rules, determine earliest start date
             record = r.record
@@ -2062,6 +2237,22 @@ def config(settings):
                                         label = T("Notifications"),
                                         ))
             s3db.configure("hrm_delegation", crud_form=crud_form)
+
+        #elif current.auth.s3_has_roles(("HRMANAGER", "VCMANAGER")):
+        #    # Enable site_id and filter to sites of org
+        #    field = table.site_id
+        #    field.readable = field.writable = True
+        #    field.label = T("Deployment Site")
+        #    from s3 import IS_ONE_OF
+        #    field.requires = IS_EMPTY_OR(IS_ONE_OF(current.db, "org_site.site_id",
+        #                                           s3db.org_site_represent,
+        #                                           ))
+        #    script = '''$.filterOptionsS3({
+        #'trigger':'organisation_id',
+        #'target':'site_id',
+        #'lookupURL':S3.Ap.concat('/org/sites_for_org/'),
+        #})'''
+        #    current.response.s3.jquery_ready.append(script)
 
         # Reconfigure
         s3db.add_custom_callback("hrm_delegation",
@@ -2171,7 +2362,8 @@ def config(settings):
                 if not r.id:
                     r.resource.add_filter(FS("status") != "NVLD")
 
-            multiple_orgs = delegation_read_multiple_orgs()[0]
+            from .helpers import rlp_delegation_read_multiple_orgs
+            multiple_orgs = rlp_delegation_read_multiple_orgs()[0]
 
             if r.interactive:
 
@@ -2240,6 +2432,7 @@ def config(settings):
             if not volunteer_id:
                 list_fields[0:0] =  [(T("Pool"), "person_id$pool_membership.group_id"),
                                      "person_id",
+                                     "person_id$occupation_type_person.occupation_type_id",
                                      ]
             if multiple_orgs:
                 list_fields.insert(0, "organisation_id")
@@ -2278,6 +2471,8 @@ def config(settings):
             return result
         s3.prep = custom_prep
 
+        # Custom rheaders
+        from .rheaders import rlp_vol_rheader, rlp_delegation_rheader
         attr = dict(attr)
         if volunteer_id:
             attr["rheader"] = rlp_vol_rheader
@@ -2287,6 +2482,32 @@ def config(settings):
         return attr
 
     settings.customise_hrm_delegation_controller = customise_hrm_delegation_controller
+
+    # -------------------------------------------------------------------------
+    # Custom callbacks for competency changes in user profile
+    #
+    def hrm_competency_onaccept(form):
+
+        try:
+            record_id = form.vars.id
+        except AttributeError:
+            return
+
+        table = current.s3db.hrm_competency
+        query = (table.id == record_id) & (table.person_id != None)
+        row = current.db(query).select(table.person_id,
+                                       limitby = (0, 1),
+                                       ).first()
+        if row:
+            from .helpers import rlp_update_pool
+            rlp_update_pool(Storage(vars = Storage(id=row.person_id)))
+
+    def hrm_competency_ondelete(row):
+
+        person_id = row.person_id
+        if person_id:
+            from .helpers import rlp_update_pool
+            rlp_update_pool(Storage(vars = Storage(id=person_id)))
 
     # -------------------------------------------------------------------------
     def customise_hrm_competency_resource(r, tablename):
@@ -2309,6 +2530,23 @@ def config(settings):
                                       "comments",
                                       ],
                        )
+
+        if r.controller == "default" and r.function == "person":
+            volunteer_id = None
+            if r.id:
+                rows = r.resource.select(["volunteer_record.id"], limit = 1).rows
+                if rows:
+                    volunteer_id = rows[0]["hrm_volunteer_record_human_resource.id"]
+
+            if volunteer_id:
+                # Add custom callbacks to change pool membership if required
+                # by pool rules
+                s3db.add_custom_callback("hrm_competency", "onaccept",
+                                         hrm_competency_onaccept,
+                                         )
+                s3db.add_custom_callback("hrm_competency", "ondelete",
+                                         hrm_competency_ondelete,
+                                         )
 
     settings.customise_hrm_competency_resource = customise_hrm_competency_resource
 
@@ -2482,438 +2720,5 @@ def config(settings):
         #    module_type = None,
         #)),
     ])
-
-# =============================================================================
-def rlp_active_deployments(ctable, from_date=None, to_date=None):
-    """
-        Helper to construct a component filter expression
-        for active deployments within the given interval (or now)
-
-        @param ctable: the (potentially aliased) component table
-        @param from_date: start of the interval
-        @param to_date: end of the interval
-
-        @note: with no dates, today is assumed as the interval start+end
-    """
-
-    start = ctable.date
-    end = ctable.end_date
-
-    if not from_date and not to_date:
-        from_date = to_date = current.request.utcnow
-
-    if from_date and to_date:
-        query = ((start <= to_date) | (start == None)) & \
-                ((end >= from_date) | (end == None))
-    elif to_date:
-        query = (start <= to_date) | (start == None)
-    else:
-        query = (start >= from_date) | (end >= from_date) | \
-                ((start == None) & (end == None))
-
-    return query & ctable.status.belongs(("APPR", "IMPL"))
-
-# =============================================================================
-def rlp_deployed_with_org(person_id):
-    """
-        Check whether one or more volunteers have active or upcoming
-        deployments managed by the current user (i.e. where user is
-        either HRMANAGER for the deploying organisation, or COORDINATOR)
-
-        @param person_id: a pr_person record ID, or a set|list|tuple thereof
-    """
-
-    s3 = current.response.s3
-
-    if isinstance(person_id, (list, tuple)):
-        person_ids = set(person_id)
-    elif not isinstance(person_id, set):
-        person_ids = {person_id}
-    else:
-        person_ids = person_id
-
-    # Cache in response.s3 (we may need to check this at several points)
-    deployed_with_org = s3.rlp_deployed_with_org
-    if not deployed_with_org:
-        deployed_with_org = s3.rlp_deployed_with_org = set()
-    elif all(person_id in deployed_with_org for person_id in person_ids):
-        return True
-
-    # Check all other person_ids
-    check_ids = person_ids - deployed_with_org
-
-    today = current.request.utcnow.date()
-    dtable = current.s3db.hrm_delegation
-    query = current.auth.s3_accessible_query("read", dtable) & \
-            (dtable.person_id.belongs(check_ids)) & \
-            rlp_active_deployments(dtable, from_date=today) & \
-            (dtable.deleted == False)
-    deployed = current.db(query).select(dtable.person_id)
-    deployed_with_org |= {row.person_id for row in deployed}
-
-    # Update cache
-    s3.rlp_deployed_with_org = deployed_with_org
-
-    return all(person_id in deployed_with_org for person_id in person_ids)
-
-# =============================================================================
-def rlp_vol_rheader(r, tabs=None):
-    """ Custom rheader for vol/person """
-
-    if r.representation != "html":
-        # Resource headers only used in interactive views
-        return None
-
-    from s3 import s3_rheader_resource, S3ResourceHeader
-
-    tablename, record = s3_rheader_resource(r)
-    if tablename != r.tablename:
-        resource = current.s3db.resource(tablename, id=record.id)
-    else:
-        resource = r.resource
-
-    rheader = None
-    rheader_fields = []
-
-    if record:
-
-        T = current.T
-        db = current.db
-        s3db = current.s3db
-        auth = current.auth
-
-        coordinator = auth.s3_has_role("COORDINATOR")
-
-        if tablename == "pr_person":
-
-            if coordinator:
-                delegation_tab = (T("Recruitment"), "delegation")
-            else:
-                delegation_tab = (T("Recruitment"), "delegation/")
-
-            if not tabs:
-                tabs = [(T("Personal Data"), None),
-                        (T("Skills / Resources"), "competency"),
-                        delegation_tab,
-                        ]
-
-            volunteer = resource.select(["person_details.alias",
-                                         "pool_membership.group_id",
-                                         "pool_membership.group_id$group_type",
-                                         "date_of_birth",
-                                         "age",
-                                         "occupation_type_person.occupation_type_id",
-                                         "volunteer_record.site_id",
-                                         ],
-                                        represent = True,
-                                        raw_data = True,
-                                        ).rows
-            if volunteer:
-                # Extract volunteer details
-                volunteer = volunteer[0]
-                if coordinator or rlp_deployed_with_org(record.id):
-                    name = s3_fullname
-                else:
-                    name = lambda row: volunteer["pr_person_details.alias"]
-                pool = lambda row: volunteer["pr_pool_membership_group_membership.group_id"]
-                age = lambda row: volunteer["pr_person.age"]
-                occupation_type = lambda row: volunteer["pr_occupation_type_person.occupation_type_id"]
-            else:
-                # Target record exists, but doesn't match filters
-                return None
-
-            rheader_fields = [[(T("ID"), "pe_label"),
-                               (T("Pool"), pool),
-                               ],
-                              [(T("Age"), age),
-                               (T("Occupation Type"), occupation_type),
-                               ],
-                              [("", None),
-                               ("", None),
-                               ]
-                              ]
-
-            if coordinator:
-                raw = volunteer["_row"]
-                site_id = raw["hrm_volunteer_record_human_resource.site_id"]
-                if site_id:
-                    # Get site details
-                    otable = s3db.org_office
-                    query = (otable.site_id == site_id) & \
-                            (otable.deleted == False)
-                    office = db(query).select(otable.name,
-                                              otable.phone1,
-                                              otable.email,
-                                              limitby = (0, 1),
-                                              ).first()
-                    if office:
-                        rheader_fields[0].append((T("Office##gov"),
-                                                  lambda row: office.name,
-                                                  ))
-                        rheader_fields[1].append((T("Office Phone##gov"),
-                                                  lambda row: office.phone1,
-                                                  ))
-                        rheader_fields[2].append((T("Office Email##gov"),
-                                                  lambda row: office.email,
-                                                  ))
-
-            open_pool_member = (volunteer["_row"]["pr_group.group_type"] == 21)
-            if not coordinator and open_pool_member:
-                # Recruitment hint
-                from gluon import SPAN
-                hint = lambda row: SPAN(T("Please contact the volunteer directly for deployment"),
-                                        _class="direct-contact-hint"
-                                        )
-                rheader_fields.append([(None, hint, 5)])
-
-        rheader = S3ResourceHeader(rheader_fields, tabs, title=name)(r,
-                                                         table = resource.table,
-                                                         record = record,
-                                                         )
-    return rheader
-
-# =============================================================================
-def rlp_profile_rheader(r, tabs=None):
-    """ Custom rheader for default/person """
-
-    if r.representation != "html":
-        # Resource headers only used in interactive views
-        return None
-
-    from s3 import s3_rheader_resource, S3ResourceHeader
-
-    tablename, record = s3_rheader_resource(r)
-    if tablename != r.tablename:
-        resource = current.s3db.resource(tablename, id=record.id)
-    else:
-        resource = r.resource
-
-    rheader = None
-    rheader_fields = []
-
-    if record:
-
-        T = current.T
-
-        if tablename == "pr_person":
-
-            tabs = [(T("Person Details"), None),
-                    (T("User Account"), "user_profile"),
-                    (T("Address"), "address"),
-                    (T("Contact Information"), "contacts"),
-                    (T("Skills"), "competency"),
-                    ]
-
-            rheader_fields = [[(T("ID"), "pe_label"),
-                               ],
-                              [(T("Name"), s3_fullname),
-                               ],
-                              ["date_of_birth",
-                               ]
-                              ]
-
-        rheader = S3ResourceHeader(rheader_fields, tabs)(r,
-                                                         table = resource.table,
-                                                         record = record,
-                                                         )
-    return rheader
-
-# =============================================================================
-def rlp_org_rheader(r, tabs=None):
-    """ ORG custom resource headers """
-
-    if r.representation != "html":
-        # Resource headers only used in interactive views
-        return None
-
-    from s3 import s3_rheader_resource, S3ResourceHeader
-
-    tablename, record = s3_rheader_resource(r)
-    if tablename != r.tablename:
-        resource = current.s3db.resource(tablename, id=record.id)
-    else:
-        resource = r.resource
-
-    rheader = None
-    rheader_fields = []
-
-    if record:
-        T = current.T
-
-        if tablename == "org_organisation":
-
-            if not tabs:
-                tabs = [(T("Organisation"), None),
-                        (T("Administrative Offices"), "office"),
-                        (T("Staff"), "human_resource"),
-                        (T("Volunteer Pools"), "pool"),
-                        ]
-
-            rheader_fields = [["name",
-                               ],
-                              ]
-
-        rheader = S3ResourceHeader(rheader_fields, tabs)(r,
-                                                         table=resource.table,
-                                                         record=record,
-                                                         )
-    return rheader
-
-# =============================================================================
-def rlp_delegation_rheader(r, tabs=None):
-    """ hrm_delegation custom resource header """
-
-    if r.representation != "html":
-        # Resource headers only used in interactive views
-        return None
-
-    from s3 import s3_rheader_resource, S3ResourceHeader
-
-    tablename, record = s3_rheader_resource(r)
-    if tablename != r.tablename:
-        resource = current.s3db.resource(tablename, id=record.id)
-    else:
-        resource = r.resource
-
-    rheader = None
-    rheader_fields = []
-
-    if record:
-        T = current.T
-
-        if tablename == "hrm_delegation":
-
-            if not tabs:
-                tabs = [(T("Basic Details"), None),
-                        (T("Notifications"), "delegation_message"),
-                        (T("Notes"), "delegation_note"),
-                        ]
-
-            rheader_fields = [["organisation_id",
-                               "date",
-                               "status",
-                               ],
-                              ["person_id",
-                               "end_date",
-                               ],
-                              ]
-
-        rheader = S3ResourceHeader(rheader_fields, tabs)(r,
-                                                         table=resource.table,
-                                                         record=record,
-                                                         )
-    return rheader
-
-# =============================================================================
-class RLPAvailabilityFilter(S3DateFilter):
-    """
-        Date-Range filter with custom variable
-        - without this then we parse as a vfilter which clutters error console
-          & is inefficient (including preventing a bigtable optimisation)
-    """
-
-    @classmethod
-    def _variable(cls, selector, operator):
-
-        return super()._variable("available", operator)
-
-# =============================================================================
-class rlp_DelegatedPersonRepresent(S3Represent):
-
-    def __init__(self, show_link=True, linkto=None):
-        """
-            Constructor
-
-            @param show_link: show representation as clickable link
-            @param linkto: URL for the link, using "[id]" as placeholder
-                           for the record ID
-        """
-
-        super(rlp_DelegatedPersonRepresent, self).__init__(
-                                                lookup = "pr_person",
-                                                show_link = show_link,
-                                                linkto = linkto,
-                                                )
-
-        self.coordinator = current.auth.s3_has_role("COORDINATOR")
-
-    # -------------------------------------------------------------------------
-    def lookup_rows(self, key, values, fields=None):
-        """
-            Custom rows lookup
-
-            @param key: the key Field
-            @param values: the values
-            @param fields: unused (retained for API compatibility)
-        """
-
-        db = current.db
-        s3db = current.s3db
-
-        table = self.table
-
-        count = len(values)
-        if count == 1:
-            query = (key == values[0])
-        else:
-            query = key.belongs(values)
-
-        # Get the person names
-        rows = db(query).select(table.id,
-                                table.pe_label,
-                                table.first_name,
-                                table.middle_name,
-                                table.last_name,
-                                limitby = (0, count),
-                                )
-        self.queries += 1
-        person_ids = {row.id for row in rows}
-
-        # For all persons found, get the alias
-        pdtable = s3db.pr_person_details
-        query = (pdtable.person_id.belongs(person_ids)) & \
-                (pdtable.deleted == False)
-        details = db(query).select(pdtable.person_id, pdtable.alias)
-        aliases = {item.person_id: item.alias for item in details}
-        self.queries += 1
-
-        # Check which persons are currently deployed with org
-        rlp_deployed_with_org(person_ids)
-
-        for row in rows:
-            alias = aliases.get(row.id, "***")
-            row.alias = alias if alias else "-"
-
-        return rows
-
-    # -------------------------------------------------------------------------
-    def represent_row(self, row, prefix=None):
-        """
-            Represent a row
-
-            @param row: the Row
-        """
-
-        if self.coordinator or \
-           row.id in current.response.s3.rlp_deployed_with_org:
-            repr_str = "[%s] %s" % (row.pe_label, s3_fullname(row))
-        else:
-            repr_str = "[%s] %s" % (row.pe_label, row.alias)
-
-        return repr_str
-
-    # -------------------------------------------------------------------------
-    def link(self, k, v, row=None):
-        """
-            Represent a (key, value) as hypertext link
-
-            @param k: the key (br_case_activity.id)
-            @param v: the representation of the key
-            @param row: the row with this key
-        """
-
-        url = URL(c = "vol", f = "person", args = [row.id], extension = "")
-
-        return A(v, _href = url)
 
 # END =========================================================================

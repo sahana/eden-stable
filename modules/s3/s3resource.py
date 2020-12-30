@@ -3750,7 +3750,16 @@ class S3Resource(object):
                 ftype = str(field.type)
 
                 represent = field.represent
-                if not hasattr(represent, "skip_dt_orderby") and \
+                if ftype == "json":
+                    # Can't sort by JSON fields
+                    # => try using corresponding id column to maintain some
+                    #    fake yet consistent sort order:
+                    tn = field.tablename
+                    try:
+                        orderby.append("%s%s" % (db[tn]._id, direction(i)))
+                    except AttributeError:
+                        continue
+                elif not hasattr(represent, "skip_dt_orderby") and \
                    hasattr(represent, "dt_orderby"):
                     # Custom orderby logic in field.represent
                     field.represent.dt_orderby(field,
@@ -4079,6 +4088,10 @@ class S3Components(object):
             self.__load((alias,))
             return components.get(alias, default)
         else:
+            db = current.db
+            table_alias = component._alias
+            if not getattr(db, table_alias, None):
+                setattr(db._aliased_tables, table_alias, component.table)
             return component
 
     # -------------------------------------------------------------------------
@@ -6304,8 +6317,10 @@ class S3ResourceData(object):
         sfields.insert(0, table._id)
 
         # Retrieve the subtable rows
+        # - can't use distinct with native JSON fields
+        distinct = not any(f.type == "json" for f in sfields)
         rows = current.db(query).select(left = sjoins,
-                                        distinct = True,
+                                        distinct = distinct,
                                         cacheable = True,
                                         *sfields)
 

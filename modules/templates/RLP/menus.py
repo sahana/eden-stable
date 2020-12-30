@@ -205,11 +205,11 @@ class S3OptionsMenu(default.S3OptionsMenu):
                         #M("Hierarchy", m="hierarchy"),
                         M("Create", m="create", restrict=(ADMIN, ORG_GROUP_ADMIN)),
                         ),
-                    #M("Administration", restrict=(ADMIN, ORG_GROUP_ADMIN))(
-                    #    M("Facility Types", f="facility_type"),
+                    M("Administration", restrict=(ADMIN, ORG_GROUP_ADMIN))(
+                        M("Facility Types", f="facility_type"),
                     #    M("Organization Types", f="organisation_type"),
                     #    M("Sectors", f="sector"),
-                    #    )
+                        )
                     )
 
     # -------------------------------------------------------------------------
@@ -265,7 +265,7 @@ class S3OptionsMenu(default.S3OptionsMenu):
                         M("Archive",
                           vars = {"workflow": "o"},
                           ),
-                        M("Organizer", m="organize", restrict="HRMANAGER"),
+                        M("Organizer", m="organize", restrict=("HRMANAGER", "VCMANAGER")),
                         ),
                     M("Statistics", link=False)(
                         M("Deployments", c="hrm", f="delegation", m="report"),

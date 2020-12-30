@@ -166,6 +166,7 @@ class S3Config(Storage):
         self.cap = Storage()
         self.cms = Storage()
         self.cr = Storage()
+        self.custom = Storage()
         self.database = Storage()
         self.dc = Storage()
         self.deploy = Storage()
@@ -1411,6 +1412,7 @@ class S3Config(Storage):
             Which Geocoder Service should be used?
             Supported options:
                 "nominatim" (default)
+                "geonames"
                 "google"
         """
         return self.gis.get("geocode_service", "nominatim")
@@ -5190,6 +5192,12 @@ class S3Config(Storage):
         """
         return self.__lazy("pr", "person_availability_options", default=None)
 
+    def get_pr_availability_json_rules(self):
+        """
+            Generate availability rules from schedule_json
+        """
+        return self.pr.get("availability_json_rules", False)
+
     def get_pr_hide_third_gender(self):
         """
             Whether to hide the third gender ("Other")
@@ -5939,6 +5947,19 @@ class S3Config(Storage):
 
         if key:
             return self.frontpage.get(key, default)
+        else:
+            return default
+
+    # -------------------------------------------------------------------------
+    # Custom template options
+    #
+    def get_custom(self, key=None, default=None):
+        """
+            Template-specific configuration options
+        """
+
+        if key:
+            return self.custom.get(key, default)
         else:
             return default
 
