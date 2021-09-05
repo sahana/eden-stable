@@ -5171,8 +5171,8 @@ class PRAvailabilityModel(S3Model):
                     missing.append(fn)
             if missing and record_id:
                 row = db(table.id == record_id).select(*missing,
-                                                    limitby=(0, 1),
-                                                    ).first()
+                                                       limitby = (0, 1)
+                                                       ).first()
                 if row:
                     for fn in missing:
                         availability[fn] = row[fn]
